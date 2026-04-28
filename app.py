@@ -35,18 +35,24 @@ app.register_blueprint(pagamenti_bp)
 app.register_blueprint(stats_bp)
 
 
+# Ensure tables exist on first request
+_db_initialized = False
+
+@app.before_request
+def ensure_db():
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            db.create_all()
+            _db_initialized = True
+            print("Database tables created successfully")
+        except Exception as e:
+            print(f"DB init error: {e}")
+
+
 @app.route('/')
 def health():
     return {'status': 'ok', 'service': 'SB Food Consulting API'}, 200
-
-
-# Create tables
-with app.app_context():
-    try:
-        db.create_all()
-        print("Database inizializzato correttamente")
-    except Exception as e:
-        print(f"Warning DB: {e}")
 
 
 if __name__ == '__main__':
