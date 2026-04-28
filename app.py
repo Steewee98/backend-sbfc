@@ -53,6 +53,8 @@ def ensure_db():
             _db_error = str(e)
             print(f"DB init error: {e}")
             traceback.print_exc()
+            if request.path != '/':
+                return jsonify({'error': 'Database non disponibile', 'detail': _db_error}), 503
 
 
 @app.route('/')
@@ -66,9 +68,10 @@ def health():
     }, 200
 
 
-@app.errorhandler(500)
-def handle_500(e):
-    return jsonify({'error': 'Internal server error', 'detail': str(e)}), 500
+@app.errorhandler(Exception)
+def handle_exception(e):
+    traceback.print_exc()
+    return jsonify({'error': 'Internal server error', 'detail': str(e), 'type': type(e).__name__}), 500
 
 
 if __name__ == '__main__':
