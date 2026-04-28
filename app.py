@@ -37,12 +37,16 @@ app.register_blueprint(stats_bp)
 
 @app.route('/')
 def health():
-    return jsonify({'status': 'ok'})
+    return {'status': 'ok', 'service': 'SB Food Consulting API'}, 200
 
 
-# Create tables on first request
+# Create tables
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+        print("Database inizializzato correttamente")
+    except Exception as e:
+        print(f"Warning DB: {e}")
 
 
 if __name__ == '__main__':
