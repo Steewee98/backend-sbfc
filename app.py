@@ -52,7 +52,8 @@ def ensure_db():
 
 @app.route('/')
 def health():
-    return {'status': 'ok', 'service': 'SB Food Consulting API'}, 200
+    db_type = 'postgresql' if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI'] else 'sqlite'
+    return {'status': 'ok', 'service': 'SB Food Consulting API', 'db': db_type, 'db_ready': _db_initialized}, 200
 
 
 if __name__ == '__main__':
