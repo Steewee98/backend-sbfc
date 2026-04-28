@@ -71,6 +71,40 @@ def lista_contatti():
     return jsonify([c.to_dict() for c in contatti])
 
 
+@contatti_bp.route('/api/test-email', methods=['GET'])
+@admin_required
+def test_email():
+    """Endpoint debug — testa invio email e restituisce errore."""
+    import smtplib
+    mail_username = os.environ.get('MAIL_USERNAME', '')
+    mail_password = os.environ.get('MAIL_PASSWORD', '')
+    mail_from = os.environ.get('MAIL_FROM', '')
+
+    result = {
+        'mail_username_set': bool(mail_username),
+        'mail_username_preview': mail_username[:3] + '***' if mail_username else None,
+        'mail_password_set': bool(mail_password),
+        'mail_password_len': len(mail_password) if mail_password else 0,
+        'mail_from': mail_from,
+    }
+
+    if not mail_username or not mail_password:
+        result['error'] = 'Credenziali mancanti'
+        return jsonify(result), 400
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+        server.starttls()
+        server.login(mail_username, mail_password)
+        server.quit()
+        result['smtp_login'] = 'OK'
+    except Exception as e:
+        result['smtp_login'] = 'FAILED'
+        result['smtp_error'] = str(e)
+
+    return jsonify(result)
+
+
 @contatti_bp.route('/api/contatti/<int:id>', methods=['PATCH'])
 @admin_required
 def aggiorna_contatto(id):
