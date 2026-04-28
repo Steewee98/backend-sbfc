@@ -18,8 +18,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-fallback-key')
 
 # CORS
-frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:8891')
-CORS(app, origins=[frontend_url, 'http://localhost:*', 'http://127.0.0.1:*'])
+frontend_url = os.environ.get('FRONTEND_URL', 'https://sito-sbfc-production.up.railway.app')
+CORS(app, origins=[frontend_url, 'https://sito-sbfc-production.up.railway.app', 'http://localhost:*', 'http://127.0.0.1:*'])
 
 # Init DB
 db.init_app(app)
