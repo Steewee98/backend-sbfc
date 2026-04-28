@@ -1,8 +1,12 @@
 import os
+import logging
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from models import db, Contatto
+from services.email_service import invia_email_benvenuto
+
+logger = logging.getLogger(__name__)
 
 contatti_bp = Blueprint('contatti', __name__)
 
@@ -40,6 +44,12 @@ def crea_contatto():
     )
     db.session.add(contatto)
     db.session.commit()
+
+    # Invio email benvenuto (non blocca la risposta API)
+    try:
+        invia_email_benvenuto(nome=data['nome'], destinatario=data['email'])
+    except Exception as e:
+        logger.error(f"Errore invio email benvenuto: {e}")
 
     return jsonify({'success': True, 'id': contatto.id}), 201
 
