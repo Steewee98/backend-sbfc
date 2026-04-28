@@ -1,5 +1,6 @@
 import os
-from flask import Flask, jsonify
+import traceback
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 from models import db
@@ -35,25 +36,40 @@ app.register_blueprint(pagamenti_bp)
 app.register_blueprint(stats_bp)
 
 
-# Ensure tables exist on first request
+# Ensure tables exist
 _db_initialized = False
+_db_error = None
 
 @app.before_request
 def ensure_db():
-    global _db_initialized
+    global _db_initialized, _db_error
     if not _db_initialized:
         try:
             db.create_all()
             _db_initialized = True
+            _db_error = None
             print("Database tables created successfully")
         except Exception as e:
+            _db_error = str(e)
             print(f"DB init error: {e}")
+            traceback.print_exc()
 
 
 @app.route('/')
 def health():
     db_type = 'postgresql' if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI'] else 'sqlite'
-    return {'status': 'ok', 'service': 'SB Food Consulting API', 'db': db_type, 'db_ready': _db_initialized}, 200
+    return {
+        'status': 'ok',
+        'service': 'SB Food Consulting API',
+        'db': db_type,
+        'db_ready': _db_initialized,
+        'db_error': _db_error,
+    }, 200
+
+
+@app.errorhandler(500)
+def handle_500(e):
+    return jsonify({'error': 'Internal server error', 'detail': str(e)}), 500
 
 
 if __name__ == '__main__':
