@@ -74,33 +74,36 @@ def lista_contatti():
 @contatti_bp.route('/api/test-email', methods=['GET'])
 @admin_required
 def test_email():
-    """Endpoint debug — testa invio email e restituisce errore."""
-    import smtplib
-    mail_username = os.environ.get('MAIL_USERNAME', '')
-    mail_password = os.environ.get('MAIL_PASSWORD', '')
+    """Endpoint debug — testa invio email via Resend."""
+    import resend as _resend
+
+    api_key = os.environ.get('RESEND_API_KEY', '')
     mail_from = os.environ.get('MAIL_FROM', '')
 
     result = {
-        'mail_username_set': bool(mail_username),
-        'mail_username_preview': mail_username[:3] + '***' if mail_username else None,
-        'mail_password_set': bool(mail_password),
-        'mail_password_len': len(mail_password) if mail_password else 0,
+        'resend_api_key_set': bool(api_key),
+        'resend_api_key_preview': api_key[:8] + '***' if api_key else None,
         'mail_from': mail_from,
     }
 
-    if not mail_username or not mail_password:
-        result['error'] = 'Credenziali mancanti'
+    if not api_key:
+        result['error'] = 'RESEND_API_KEY mancante'
         return jsonify(result), 400
 
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
-        server.starttls()
-        server.login(mail_username, mail_password)
-        server.quit()
-        result['smtp_login'] = 'OK'
+        _resend.api_key = api_key
+        params: _resend.Emails.SendParams = {
+            "from": mail_from or "SB Food Consulting <onboarding@resend.dev>",
+            "to": ["delivered@resend.dev"],
+            "subject": "Test email — SB Food Consulting",
+            "text": "Test invio email da Railway.",
+        }
+        email = _resend.Emails.send(params)
+        result['status'] = 'OK'
+        result['email_id'] = email['id']
     except Exception as e:
-        result['smtp_login'] = 'FAILED'
-        result['smtp_error'] = str(e)
+        result['status'] = 'FAILED'
+        result['error'] = str(e)
 
     return jsonify(result)
 

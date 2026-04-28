@@ -1,9 +1,7 @@
 import os
-import smtplib
 import logging
 import threading
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import resend
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +9,9 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templa
 
 
 def _send_email(nome: str, destinatario: str):
-    """Invio effettivo SMTP (eseguito in thread separato)."""
-    mail_username = os.environ.get('MAIL_USERNAME')
-    mail_password = os.environ.get('MAIL_PASSWORD')
-    mail_from = os.environ.get('MAIL_FROM', 'info@sbfoodconsulting.com')
+    """Invio effettivo via Resend API (eseguito in thread separato)."""
+    resend.api_key = os.environ.get('RESEND_API_KEY')
+    mail_from = os.environ.get('MAIL_FROM', 'SB Food Consulting <onboarding@resend.dev>')
 
     # Carica template
     template_path = os.path.join(TEMPLATES_DIR, 'email_benvenuto.html')
@@ -22,12 +19,6 @@ def _send_email(nome: str, destinatario: str):
         html_content = f.read()
 
     html_content = html_content.replace('[NOME]', nome)
-
-    # Componi messaggio
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f'Grazie per averci contattato, {nome} \u2014 SB Food Consulting'
-    msg['From'] = f'SB Food Consulting <{mail_from}>'
-    msg['To'] = destinatario
 
     text_content = (
         f"Grazie per averci contattato, {nome}.\n\n"
@@ -39,26 +30,26 @@ def _send_email(nome: str, destinatario: str):
         "info@sbfoodconsulting.com\n"
     )
 
-    msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
-    msg.attach(MIMEText(html_content, 'html', 'utf-8'))
-
     try:
-        with smtplib.SMTP('smtp.gmail.com', 587, timeout=10) as server:
-            server.starttls()
-            server.login(mail_username, mail_password)
-            server.send_message(msg)
-        logger.info(f"Email benvenuto inviata a {destinatario}")
+        params: resend.Emails.SendParams = {
+            "from": mail_from,
+            "to": [destinatario],
+            "subject": f"Grazie per averci contattato, {nome} \u2014 SB Food Consulting",
+            "html": html_content,
+            "text": text_content,
+        }
+        email = resend.Emails.send(params)
+        logger.info(f"Email benvenuto inviata a {destinatario} (id: {email['id']})")
     except Exception as e:
         logger.error(f"Errore invio email a {destinatario}: {e}")
 
 
 def invia_email_benvenuto(nome: str, destinatario: str):
     """Invia email di benvenuto in background (non blocca la risposta API)."""
-    mail_username = os.environ.get('MAIL_USERNAME')
-    mail_password = os.environ.get('MAIL_PASSWORD')
+    api_key = os.environ.get('RESEND_API_KEY')
 
-    if not mail_username or not mail_password:
-        logger.warning("MAIL_USERNAME o MAIL_PASSWORD non configurate, email non inviata")
+    if not api_key:
+        logger.warning("RESEND_API_KEY non configurata, email non inviata")
         return
 
     thread = threading.Thread(target=_send_email, args=(nome, destinatario), daemon=True)
