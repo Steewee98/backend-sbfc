@@ -57,11 +57,16 @@ def ensure_db():
 
 @app.route('/')
 def health():
-    db_type = 'postgresql' if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI'] else 'sqlite'
+    db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    db_type = 'postgresql' if 'postgresql' in db_uri else 'sqlite'
+    # Mask password for debug
+    import re
+    db_uri_safe = re.sub(r'://[^:]+:[^@]+@', '://***:***@', db_uri)
     return {
         'status': 'ok',
         'service': 'SB Food Consulting API',
         'db': db_type,
+        'db_uri': db_uri_safe,
         'db_ready': _db_initialized,
         'db_error': _db_error,
     }, 200
