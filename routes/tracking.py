@@ -145,21 +145,21 @@ def get_realtime():
     if token != os.environ.get('ADMIN_TOKEN'):
         return jsonify({'error': 'Unauthorized'}), 401
 
-    # Visitatori ultimi 5 minuti
-    cinque_minuti_fa = datetime.utcnow() - timedelta(minutes=5)
+    # Visitatori ultimi 2 minuti
+    due_minuti_fa = datetime.utcnow() - timedelta(minutes=2)
 
     visitatori_attivi = db.session.query(
         func.count(func.distinct(Visita.ip_hash))
     ).filter(
-        Visita.created_at >= cinque_minuti_fa
+        Visita.created_at >= due_minuti_fa
     ).scalar()
 
-    # Pagine visitate negli ultimi 5 minuti
+    # Pagine visitate negli ultimi 2 minuti
     pagine_attive = db.session.query(
         Visita.pagina,
         func.count(Visita.id).label('visite')
     ).filter(
-        Visita.created_at >= cinque_minuti_fa
+        Visita.created_at >= due_minuti_fa
     ).group_by(Visita.pagina).order_by(
         func.count(Visita.id).desc()
     ).all()
