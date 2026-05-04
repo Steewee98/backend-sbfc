@@ -109,3 +109,16 @@ class Pagamento(db.Model):
             'stripe_id': self.stripe_id,
             'created_at': self.created_at.isoformat(),
         }
+
+
+class Visita(db.Model):
+    __tablename__ = 'visite'
+
+    id = db.Column(db.Integer, primary_key=True)
+    pagina = db.Column(db.String(200), nullable=False)
+    ip_hash = db.Column(db.String(64))
+    user_agent = db.Column(db.String(500))
+    referrer = db.Column(db.String(500))
+    paese = db.Column(db.String(100))
+    dispositivo = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
