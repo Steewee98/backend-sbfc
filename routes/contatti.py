@@ -4,7 +4,8 @@ from functools import wraps
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from models import db, Contatto
-from services.email_service import invia_email_benvenuto
+from utils.email import invia_email
+from utils.templates import email_benvenuto_contatto
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,14 @@ def crea_contatto():
     db.session.add(contatto)
     db.session.commit()
 
-    # Invio email benvenuto (non blocca la risposta API)
+    # Invio email benvenuto via Brevo
     try:
-        invia_email_benvenuto(nome=data['nome'], destinatario=data['email'])
+        corpo = email_benvenuto_contatto(data['nome'])
+        invia_email(data['email'], data['nome'],
+            "Grazie per averci contattato — SB Food Consulting",
+            corpo)
     except Exception as e:
-        logger.error(f"Errore invio email benvenuto: {e}")
+        logger.error(f"Email non inviata: {e}")
 
     return jsonify({'success': True, 'id': contatto.id}), 201
 

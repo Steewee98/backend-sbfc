@@ -176,13 +176,19 @@ def _gestisci_pagamento(session):
 
     db.session.commit()
 
-    # Invia email con credenziali per nuovi studenti
+    # Invia email con credenziali per nuovi studenti via Brevo
     if password_generata:
         try:
-            from services.email_service import invia_email_credenziali
-            invia_email_credenziali(studente.nome, email, password_generata, moduli)
+            from utils.email import invia_email
+            from utils.templates import email_benvenuto_academy
+            corpo = email_benvenuto_academy(
+                studente.nome, email, moduli,
+                password_generata)
+            invia_email(email, studente.nome,
+                "Benvenuto in SB Food Academy — Accesso al corso",
+                corpo)
         except Exception as e:
-            logger.error(f'Error sending credentials email: {e}')
+            logger.error(f'Email academy non inviata: {e}')
 
     logger.info(f'Payment completed: {email} - {prodotto_id} - EUR {importo}')
 

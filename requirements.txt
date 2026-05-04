@@ -5,4 +5,5 @@ psycopg2-binary
 gunicorn
 python-dotenv
 resend
+sib-api-v3-sdk
 stripe
