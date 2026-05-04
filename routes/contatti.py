@@ -46,12 +46,36 @@ def crea_contatto():
     db.session.add(contatto)
     db.session.commit()
 
-    # Invio email benvenuto via Brevo
+    nome = data['nome']
+    cognome = data['cognome']
+    email = data['email']
+    telefono = data.get('telefono', '')
+    tipo_locale = data.get('tipo_locale', '')
+    messaggio = data.get('messaggio', '')
+
     try:
-        corpo = email_benvenuto_contatto(data['nome'])
-        invia_email(data['email'], data['nome'],
+        # Email di benvenuto al cliente
+        corpo_cliente = email_benvenuto_contatto(nome)
+        invia_email(email, nome,
             "Grazie per averci contattato — SB Food Consulting",
-            corpo)
+            corpo_cliente)
+
+        # Notifica a Simone
+        invia_email(
+            "info@stefanodemartis.com",
+            "Simone Braghetta",
+            f"Nuovo contatto dal sito — {nome} {cognome}",
+            f"""
+            <h3>Nuovo contatto ricevuto</h3>
+            <p><strong>Nome:</strong> {nome} {cognome}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Telefono:</strong> {telefono}</p>
+            <p><strong>Tipo locale:</strong> {tipo_locale}</p>
+            <p><strong>Messaggio:</strong><br>{messaggio}</p>
+            <p><a href="https://www.sbfoodconsulting.com/admin.html">
+            Apri il gestionale &rarr;</a></p>
+            """
+        )
     except Exception as e:
         logger.error(f"Email non inviata: {e}")
 

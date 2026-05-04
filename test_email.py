@@ -5,9 +5,9 @@ from utils.email import invia_email
 from utils.templates import email_benvenuto_contatto
 
 risultato = invia_email(
-    "tua-email@test.com",
-    "Test",
+    "info@stefanodemartis.com",
+    "Simone",
     "Test email SB Food Consulting",
-    email_benvenuto_contatto("Mario")
+    email_benvenuto_contatto("Simone")
 )
-print("Inviata!" if risultato else "Errore")
+print("Email inviata con successo!" if risultato else "Errore nell'invio")
