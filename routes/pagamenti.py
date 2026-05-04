@@ -1,8 +1,8 @@
 import os
-import json
 import string
 import secrets
 import logging
+import stripe
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
@@ -12,6 +12,8 @@ from models import db, Pagamento, Studente
 logger = logging.getLogger(__name__)
 
 pagamenti_bp = Blueprint('pagamenti', __name__)
+
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 
 # Catalogo prodotti Academy
 PRODOTTI = {
@@ -67,9 +69,6 @@ def genera_password(length=10):
 
 @pagamenti_bp.route('/api/checkout', methods=['POST'])
 def crea_checkout():
-    import stripe
-    stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
-
     data = request.get_json()
     if not data or not data.get('prodotto'):
         return jsonify({'error': 'Prodotto mancante'}), 400
@@ -79,7 +78,7 @@ def crea_checkout():
         return jsonify({'error': 'Prodotto non valido'}), 400
 
     prodotto = PRODOTTI[prodotto_id]
-    frontend_url = os.environ.get('FRONTEND_URL', 'https://sito-sbfc-production.up.railway.app')
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://www.sbfoodconsulting.com')
 
     try:
         session = stripe.checkout.Session.create(
@@ -89,19 +88,21 @@ def crea_checkout():
                     'currency': 'eur',
                     'product_data': {
                         'name': prodotto['nome'],
-                        'description': 'SB Food Academy',
+                        'description': 'SB Food Academy — sbfoodconsulting.com',
                     },
                     'unit_amount': prodotto['prezzo'],
                 },
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=f'{frontend_url}/academy.html?pagamento=successo',
+            success_url=f'{frontend_url}/academy.html?pagamento=successo&prodotto={prodotto_id}',
             cancel_url=f'{frontend_url}/academy.html?pagamento=annullato',
             metadata={
                 'prodotto_id': prodotto_id,
-                'moduli': json.dumps(prodotto['moduli']),
+                'moduli': ','.join(map(str, prodotto['moduli'])),
             },
+            billing_address_collection='required',
+            customer_email=data.get('email'),
         )
         return jsonify({'url': session.url})
     except Exception as e:
@@ -113,9 +114,6 @@ def crea_checkout():
 
 @pagamenti_bp.route('/api/webhook/stripe', methods=['POST'])
 def stripe_webhook():
-    import stripe
-    stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
-
     payload = request.get_data()
     sig_header = request.headers.get('Stripe-Signature')
     webhook_secret = os.environ.get('STRIPE_WEBHOOK_SECRET')
@@ -127,7 +125,7 @@ def stripe_webhook():
             logger.error(f'Webhook verification error: {e}')
             return jsonify({'error': 'Webhook verification failed'}), 400
     else:
-        event = json.loads(payload)
+        event = stripe.Event.construct_from(request.json, stripe.api_key)
 
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
@@ -138,16 +136,17 @@ def stripe_webhook():
 
 def _gestisci_pagamento(session):
     """Gestisce un pagamento Stripe completato."""
-    email = session.get('customer_details', {}).get('email', '')
-    nome = session.get('customer_details', {}).get('name', '')
+    email = (session.get('customer_details', {}).get('email', '') or '').lower()
+    nome_completo = session.get('customer_details', {}).get('name', '')
+    nome = nome_completo.split()[0] if nome_completo else ''
     metadata = session.get('metadata', {})
     prodotto_id = metadata.get('prodotto_id', '')
-    moduli = json.loads(metadata.get('moduli', '[]'))
+    moduli = [int(m) for m in metadata.get('moduli', '').split(',') if m]
     importo = session.get('amount_total', 0) / 100
 
     # Salva pagamento
     pagamento = Pagamento(
-        nome=nome or email,
+        nome=nome_completo or email,
         email=email,
         prodotto=PRODOTTI.get(prodotto_id, {}).get('nome', prodotto_id),
         importo=importo,
@@ -176,13 +175,34 @@ def _gestisci_pagamento(session):
 
     db.session.commit()
 
-    # Invia email con credenziali per nuovi studenti
+    # Invia email con credenziali per nuovi studenti via Brevo
     if password_generata:
         try:
-            from services.email_service import invia_email_credenziali
-            invia_email_credenziali(studente.nome, email, password_generata, moduli)
+            from utils.email import invia_email
+            from utils.templates import email_benvenuto_academy
+            corpo = email_benvenuto_academy(
+                studente.nome, email, moduli, password_generata)
+            invia_email(email, studente.nome,
+                "Benvenuto in SB Food Academy — Accesso al corso",
+                corpo)
         except Exception as e:
-            logger.error(f'Error sending credentials email: {e}')
+            logger.error(f'Email academy non inviata: {e}')
+
+    # Notifica a Simone
+    try:
+        from utils.email import invia_email
+        invia_email(
+            "info@stefanodemartis.com",
+            "Simone",
+            f"Nuovo acquisto Academy — {nome_completo}",
+            f"""<h3>Nuovo acquisto!</h3>
+            <p><strong>Cliente:</strong> {nome_completo}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Prodotto:</strong> {PRODOTTI.get(prodotto_id, {}).get('nome', prodotto_id)}</p>
+            <p><strong>Importo:</strong> {importo}&euro;</p>"""
+        )
+    except Exception as e:
+        logger.error(f'Email notifica admin non inviata: {e}')
 
     logger.info(f'Payment completed: {email} - {prodotto_id} - EUR {importo}')
 
