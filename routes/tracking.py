@@ -137,3 +137,44 @@ def get_analytics():
             for v in visite_giornaliere
         ]
     })
+
+
+@tracking_bp.route('/api/analytics/realtime', methods=['GET'])
+def get_realtime():
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Visitatori ultimi 5 minuti
+    cinque_minuti_fa = datetime.utcnow() - timedelta(minutes=5)
+
+    visitatori_attivi = db.session.query(
+        func.count(func.distinct(Visita.ip_hash))
+    ).filter(
+        Visita.created_at >= cinque_minuti_fa
+    ).scalar()
+
+    # Pagine visitate negli ultimi 5 minuti
+    pagine_attive = db.session.query(
+        Visita.pagina,
+        func.count(Visita.id).label('visite')
+    ).filter(
+        Visita.created_at >= cinque_minuti_fa
+    ).group_by(Visita.pagina).order_by(
+        func.count(Visita.id).desc()
+    ).all()
+
+    # Ultima visita
+    ultima_visita = Visita.query.order_by(
+        Visita.created_at.desc()
+    ).first()
+
+    return jsonify({
+        'visitatori_attivi': visitatori_attivi,
+        'pagine_attive': [
+            {'pagina': p.pagina, 'visite': p.visite}
+            for p in pagine_attive
+        ],
+        'ultima_visita': ultima_visita.created_at.isoformat()
+                        if ultima_visita else None
+    })
