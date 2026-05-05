@@ -127,6 +127,8 @@ def stripe_webhook():
     else:
         event = stripe.Event.construct_from(request.json, stripe.api_key)
 
+    print(f"Webhook ricevuto - tipo: {event['type']}")
+
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         _gestisci_pagamento(session)
@@ -137,12 +139,23 @@ def stripe_webhook():
 def _gestisci_pagamento(session):
     """Gestisce un pagamento Stripe completato."""
     email = (session.get('customer_details', {}).get('email', '') or '').lower()
+    # Fallback: prova customer_email se customer_details è vuoto
+    if not email:
+        email = (session.get('customer_email', '') or '').lower()
+
     nome_completo = session.get('customer_details', {}).get('name', '')
     nome = nome_completo.split()[0] if nome_completo else ''
     metadata = session.get('metadata', {})
     prodotto_id = metadata.get('prodotto_id', '')
     moduli = [int(m) for m in metadata.get('moduli', '').split(',') if m]
     importo = session.get('amount_total', 0) / 100
+
+    print(f"Webhook ricevuto - tipo: checkout.session.completed")
+    print(f"Email: {email}")
+    print(f"Nome: {nome_completo}")
+    print(f"Moduli: {moduli}")
+    print(f"Importo: {importo}")
+    print(f"Prodotto: {prodotto_id}")
 
     # Salva pagamento
     pagamento = Pagamento(
