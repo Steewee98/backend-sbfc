@@ -138,86 +138,109 @@ def stripe_webhook():
 
 def _gestisci_pagamento(session):
     """Gestisce un pagamento Stripe completato."""
-    email = (session.get('customer_details', {}).get('email', '') or '').lower()
-    # Fallback: prova customer_email se customer_details è vuoto
-    if not email:
-        email = (session.get('customer_email', '') or '').lower()
+    try:
+        # Accesso corretto agli oggetti Stripe
+        customer_details = session.customer_details
 
-    nome_completo = session.get('customer_details', {}).get('name', '')
-    nome = nome_completo.split()[0] if nome_completo else ''
-    metadata = session.get('metadata', {})
-    prodotto_id = metadata.get('prodotto_id', '')
-    moduli = [int(m) for m in metadata.get('moduli', '').split(',') if m]
-    importo = session.get('amount_total', 0) / 100
+        if customer_details:
+            email = (customer_details.email or '').lower().strip()
+            nome_completo = customer_details.name or ''
+        else:
+            email = (session.customer_email or '').lower().strip()
+            nome_completo = ''
 
-    print(f"Webhook ricevuto - tipo: checkout.session.completed")
-    print(f"Email: {email}")
-    print(f"Nome: {nome_completo}")
-    print(f"Moduli: {moduli}")
-    print(f"Importo: {importo}")
-    print(f"Prodotto: {prodotto_id}")
+        nome = nome_completo.split()[0] if nome_completo else ''
+        cognome = ' '.join(nome_completo.split()[1:]) \
+                  if len(nome_completo.split()) > 1 else ''
 
-    # Salva pagamento
-    pagamento = Pagamento(
-        nome=nome_completo or email,
-        email=email,
-        prodotto=PRODOTTI.get(prodotto_id, {}).get('nome', prodotto_id),
-        importo=importo,
-        stato='completato',
-        stripe_id=session.get('id', ''),
-    )
-    db.session.add(pagamento)
+        # Metadata
+        metadata = session.metadata
+        moduli_str = metadata.get('moduli', '') \
+                     if hasattr(metadata, 'get') \
+                     else getattr(metadata, 'moduli', '')
+        prodotto_id = metadata.get('prodotto_id', '') \
+                      if hasattr(metadata, 'get') \
+                      else getattr(metadata, 'prodotto_id', '')
 
-    # Crea o aggiorna studente
-    studente = Studente.query.filter_by(email=email).first()
-    password_generata = None
+        moduli = [int(m) for m in moduli_str.split(',')
+                  if m.strip().isdigit()]
+        importo = (session.amount_total or 0) / 100
 
-    if studente:
-        existing = set(studente.moduli_acquistati or [])
-        existing.update(moduli)
-        studente.moduli_acquistati = sorted(list(existing))
-    else:
-        password_generata = genera_password()
-        studente = Studente(
-            nome=nome or email.split('@')[0],
+        print(f"Email: {email}")
+        print(f"Nome: {nome_completo}")
+        print(f"Moduli: {moduli}")
+        print(f"Importo: {importo}")
+
+        if not email or not moduli:
+            print("Email o moduli mancanti — skip")
+            return
+
+        # Cerca o crea studente
+        studente = Studente.query.filter_by(email=email).first()
+        password_temp = None
+
+        if studente:
+            esistenti = studente.moduli_acquistati or []
+            studente.moduli_acquistati = list(
+                set(esistenti + moduli))
+        else:
+            password_temp = ''.join(secrets.choice(
+                string.ascii_letters + string.digits
+            ) for _ in range(10))
+            studente = Studente(
+                nome=nome,
+                cognome=cognome,
+                email=email,
+                password_hash=generate_password_hash(password_temp),
+                moduli_acquistati=moduli,
+                attivo=True
+            )
+            db.session.add(studente)
+
+        # Registra pagamento
+        pagamento = Pagamento(
+            nome=nome_completo,
             email=email,
-            password_hash=generate_password_hash(password_generata),
-            moduli_acquistati=moduli,
+            prodotto=prodotto_id,
+            importo=importo,
+            stato='completato',
+            stripe_id=session.id
         )
-        db.session.add(studente)
+        db.session.add(pagamento)
+        db.session.commit()
 
-    db.session.commit()
-
-    # Invia email con credenziali per nuovi studenti via Brevo
-    if password_generata:
+        # Invia email
         try:
             from utils.email import invia_email
             from utils.templates import email_benvenuto_academy
             corpo = email_benvenuto_academy(
-                studente.nome, email, moduli, password_generata)
-            invia_email(email, studente.nome,
+                nome, email, moduli, password_temp)
+            invia_email(
+                email, nome,
                 "Benvenuto in SB Food Academy — Accesso al corso",
-                corpo)
+                corpo
+            )
+            invia_email(
+                "info@stefanodemartis.com",
+                "Simone",
+                f"Nuovo acquisto Academy — {nome_completo}",
+                f"""<h3>Nuovo acquisto!</h3>
+                <p><strong>Cliente:</strong> {nome_completo}</p>
+                <p><strong>Email:</strong> {email}</p>
+                <p><strong>Prodotto:</strong> {prodotto_id}</p>
+                <p><strong>Moduli:</strong> {moduli}</p>
+                <p><strong>Importo:</strong> {importo}€</p>
+                <a href="https://www.sbfoodconsulting.com/admin.html">
+                Apri gestionale →</a>"""
+            )
+            print("Email inviate con successo")
         except Exception as e:
-            logger.error(f'Email academy non inviata: {e}')
+            print(f"Errore email: {e}")
 
-    # Notifica a Simone
-    try:
-        from utils.email import invia_email
-        invia_email(
-            "info@stefanodemartis.com",
-            "Simone",
-            f"Nuovo acquisto Academy — {nome_completo}",
-            f"""<h3>Nuovo acquisto!</h3>
-            <p><strong>Cliente:</strong> {nome_completo}</p>
-            <p><strong>Email:</strong> {email}</p>
-            <p><strong>Prodotto:</strong> {PRODOTTI.get(prodotto_id, {}).get('nome', prodotto_id)}</p>
-            <p><strong>Importo:</strong> {importo}&euro;</p>"""
-        )
     except Exception as e:
-        logger.error(f'Email notifica admin non inviata: {e}')
-
-    logger.info(f'Payment completed: {email} - {prodotto_id} - EUR {importo}')
+        print(f"Errore _gestisci_pagamento: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ─── Admin endpoints ─────────────────────────────────────
