@@ -213,7 +213,10 @@ def _gestisci_pagamento(session):
             from utils.email import invia_email
             from utils.templates import email_benvenuto_academy
             corpo = email_benvenuto_academy(
-                nome, email, moduli, password_temp)
+                nome, email, moduli, password_temp,
+                prodotto_nome=prodotto_id,
+                importo=importo
+            )
             invia_email(
                 email, nome,
                 "Benvenuto in SB Food Academy — Accesso al corso",
