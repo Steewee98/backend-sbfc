@@ -188,8 +188,7 @@ def _gestisci_pagamento(session):
                 string.ascii_letters + string.digits
             ) for _ in range(10))
             studente = Studente(
-                nome=nome,
-                cognome=cognome,
+                nome=nome_completo,
                 email=email,
                 password_hash=generate_password_hash(password_temp),
                 moduli_acquistati=moduli,
