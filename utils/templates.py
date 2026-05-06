@@ -96,7 +96,8 @@ def email_benvenuto_contatto(nome):
 def email_benvenuto_academy(nome, email, moduli,
                              password_temp=None,
                              prodotto_nome=None,
-                             importo=None):
+                             importo=None,
+                             stripe_id=None):
 
     nomi_moduli = {
         1: 'Modulo 1 — Hai davvero il controllo del tuo ristorante?',
@@ -205,6 +206,18 @@ def email_benvenuto_academy(nome, email, moduli,
         <p style="margin:12px 0 0;font-size:12px;
         color:#a0a0a0">Data: {data_oggi} —
         Pagamento processato tramite Stripe</p>
+        </td></tr>
+        """
+
+    if importo and prodotto_nome and stripe_id:
+        ricevuta_html += f"""
+        <tr><td style="padding-top:12px">
+        <a href="https://web-production-f3794.up.railway.app/api/ricevuta/{stripe_id}?email={email}"
+        style="display:inline-block;background:#f5f2ee;
+        border:1px solid #d9d4cc;color:#37393f;
+        text-decoration:none;padding:10px 20px;
+        border-radius:4px;font-size:13px;font-weight:600">
+        ↓ Scarica ricevuta PDF</a>
         </td></tr>
         """
 

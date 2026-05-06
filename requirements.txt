@@ -7,3 +7,4 @@ python-dotenv
 resend
 sib-api-v3-sdk
 stripe
+reportlab

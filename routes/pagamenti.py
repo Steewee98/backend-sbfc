@@ -4,7 +4,7 @@ import secrets
 import logging
 import stripe
 from functools import wraps
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 from models import db, Pagamento, Studente
@@ -215,7 +215,8 @@ def _gestisci_pagamento(session):
             corpo = email_benvenuto_academy(
                 nome, email, moduli, password_temp,
                 prodotto_nome=prodotto_id,
-                importo=importo
+                importo=importo,
+                stripe_id=session.id
             )
             invia_email(
                 email, nome,
@@ -287,3 +288,47 @@ def lista_pagamenti():
 
     pagamenti = query.order_by(Pagamento.created_at.desc()).all()
     return jsonify([p.to_dict() for p in pagamenti])
+
+
+# ─── Ricevuta PDF ───────────────────────────────────────
+
+@pagamenti_bp.route('/api/ricevuta/<stripe_id>',
+                    methods=['GET'])
+def scarica_ricevuta(stripe_id):
+    token = request.headers.get('X-Admin-Token')
+    # Permetti accesso con token admin O con email
+    email_param = request.args.get('email', '')
+
+    pagamento = Pagamento.query.filter_by(
+        stripe_id=stripe_id).first()
+
+    if not pagamento:
+        return jsonify({'error': 'Ricevuta non trovata'}), 404
+
+    # Verifica accesso
+    if token != os.environ.get('ADMIN_TOKEN'):
+        if not email_param or \
+           email_param.lower() != pagamento.email.lower():
+            return jsonify({'error': 'Non autorizzato'}), 401
+
+    # Recupera moduli dallo studente
+    studente = Studente.query.filter_by(
+        email=pagamento.email).first()
+    moduli = studente.moduli_acquistati if studente else []
+
+    from utils.ricevuta import genera_ricevuta_pdf
+    buffer = genera_ricevuta_pdf(
+        nome=pagamento.nome,
+        email=pagamento.email,
+        moduli=moduli,
+        prodotto_nome=pagamento.prodotto,
+        importo=pagamento.importo,
+        stripe_id=stripe_id
+    )
+
+    return send_file(
+        buffer,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=f'ricevuta-sbfood-{stripe_id[:8]}.pdf'
+    )
