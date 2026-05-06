@@ -8,3 +8,4 @@ resend
 sib-api-v3-sdk
 stripe
 reportlab
+anthropic

@@ -41,12 +41,14 @@ from routes.studenti import studenti_bp
 from routes.pagamenti import pagamenti_bp
 from routes.stats import stats_bp
 from routes.tracking import tracking_bp
+from routes.ai import ai_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
 app.register_blueprint(pagamenti_bp)
 app.register_blueprint(stats_bp)
 app.register_blueprint(tracking_bp)
+app.register_blueprint(ai_bp)
 
 
 # Ensure tables exist
