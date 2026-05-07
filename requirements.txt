@@ -9,3 +9,5 @@ sib-api-v3-sdk
 stripe
 reportlab
 anthropic
+python-docx
+python-pptx
