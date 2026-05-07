@@ -7,10 +7,6 @@ from pptx.util import Inches as PptxInches, Pt as PptxPt
 from pptx.dml.color import RGBColor as PptxRGB
 from pptx.enum.text import PP_ALIGN
 import io
-import os
-import shutil
-import subprocess
-import tempfile
 
 brandizzatore_bp = Blueprint('brandizzatore', __name__)
 
@@ -95,15 +91,6 @@ def brandizza_word():
 
 @brandizzatore_bp.route('/api/brandizza/pptx', methods=['POST'])
 def brandizza_pptx():
-    libreoffice_path = shutil.which('libreoffice') or \
-                       shutil.which('soffice')
-    print(f"LibreOffice trovato: {libreoffice_path}")
-
-    if not libreoffice_path:
-        return jsonify({
-            'error': 'LibreOffice non disponibile'
-        }), 500
-
     if 'file' not in request.files:
         return jsonify({'error': 'Nessun file'}), 400
 
@@ -262,30 +249,13 @@ def brandizza_pptx():
     tfLogoFin.paragraphs[0].runs[0].font.bold = True
     tfLogoFin.paragraphs[0].alignment = PP_ALIGN.RIGHT
 
-    # Salva il PPTX brandizzato in un file temporaneo
-    with tempfile.NamedTemporaryFile(
-            suffix='.pptx', delete=False) as tmp_pptx:
-        prs.save(tmp_pptx.name)
-        tmp_pptx_path = tmp_pptx.name
-
-    # Converti in PDF con LibreOffice
-    tmp_dir = tempfile.mkdtemp()
-    subprocess.run([
-        libreoffice_path, '--headless', '--convert-to', 'pdf',
-        '--outdir', tmp_dir, tmp_pptx_path
-    ], check=True, timeout=60)
-
-    # Trova il PDF generato
-    pdf_name = os.path.basename(
-        tmp_pptx_path).replace('.pptx', '.pdf')
-    pdf_path = os.path.join(tmp_dir, pdf_name)
-
-    # Pulisci il PPTX temporaneo
-    os.unlink(tmp_pptx_path)
+    output = io.BytesIO()
+    prs.save(output)
+    output.seek(0)
 
     return send_file(
-        pdf_path,
-        mimetype='application/pdf',
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation',
         as_attachment=True,
-        download_name='presentazione-sbfood-brandizzata.pdf'
+        download_name='presentazione-sbfood-brandizzata.pptx'
     )
