@@ -30,7 +30,7 @@ def crea_contatto():
     if not data:
         return jsonify({'error': 'Dati mancanti'}), 400
 
-    required = ['nome', 'cognome', 'email']
+    required = ['nome', 'email']
     for field in required:
         if not data.get(field):
             return jsonify({'error': f'Campo {field} obbligatorio'}), 400
