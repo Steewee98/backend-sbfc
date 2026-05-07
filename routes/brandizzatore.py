@@ -8,6 +8,7 @@ from pptx import Presentation
 from pptx.util import Inches as PptxInches, Pt as PptxPt
 from pptx.dml.color import RGBColor as PptxRGB
 from pptx.enum.text import PP_ALIGN
+from pptx.oxml.ns import qn
 
 brandizzatore_bp = Blueprint('brandizzatore', __name__)
 
@@ -92,10 +93,10 @@ def brandizza_word():
 
 @brandizzatore_bp.route('/api/brandizza/pptx', methods=['POST'])
 def brandizza_pptx():
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Nessun file'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nessun file'}), 400
 
+    try:
         file = request.files['file']
         prs = Presentation(file)
 
@@ -107,151 +108,227 @@ def brandizza_pptx():
         slide_width = prs.slide_width
         slide_height = prs.slide_height
 
-        # Titolo originale dalla prima slide (per copertina)
-        titolo_presentazione = 'Presentazione'
-        try:
-            if len(prs.slides) > 0 and prs.slides[0].shapes.title:
-                titolo_presentazione = prs.slides[0].shapes.title.text or titolo_presentazione
-        except Exception:
-            pass
-
         for i, slide in enumerate(prs.slides):
-            # Sfondo alternato
-            bg = slide.background.fill
-            bg.solid()
+            # SFONDO — alterna scuro/chiaro
+            fill = slide.background.fill
+            fill.solid()
             if i % 2 == 0:
-                bg.fore_color.rgb = SCURO
-                testo_colore = BIANCO
-                titolo_colore = TERRACOTTA
+                fill.fore_color.rgb = SCURO
+                colore_testo = BIANCO
+                colore_titolo = TERRACOTTA
+                colore_linea = TERRACOTTA
             else:
-                bg.fore_color.rgb = AVORIO
-                testo_colore = SCURO
-                titolo_colore = TERRACOTTA
+                fill.fore_color.rgb = AVORIO
+                colore_testo = SCURO
+                colore_titolo = SCURO
+                colore_linea = TERRACOTTA
 
-            # Colora testi
+            # LINEA DECORATIVA sinistra
+            line = slide.shapes.add_connector(
+                1,  # MSO_CONNECTOR_TYPE.STRAIGHT
+                PptxInches(0.3), PptxInches(0.8),
+                PptxInches(0.3), PptxInches(6.5)
+            )
+            line.line.color.rgb = TERRACOTTA
+            line.line.width = PptxPt(2)
+
+            # COLORA TUTTI I TESTI esistenti
             for shape in slide.shapes:
                 if not shape.has_text_frame:
                     continue
-                is_title = shape == slide.shapes.title if slide.shapes.title else False
                 for para in shape.text_frame.paragraphs:
                     for run in para.runs:
-                        if is_title:
-                            run.font.color.rgb = titolo_colore
+                        # Titoli principali
+                        if (shape == slide.shapes[0] and
+                                run.font.size and
+                                run.font.size >= PptxPt(20)):
+                            run.font.color.rgb = colore_titolo
+                            run.font.bold = True
                         else:
-                            run.font.color.rgb = testo_colore
+                            run.font.color.rgb = colore_testo
 
-            # Logo testuale in alto a destra
-            txBox = slide.shapes.add_textbox(
-                slide_width - PptxInches(2.5),
-                PptxInches(0.1),
-                PptxInches(2.3),
+                        # Font moderno
+                        run.font.name = 'Calibri'
+
+            # LOGO SB FOOD CONSULTING in alto a destra
+            logo_box = slide.shapes.add_textbox(
+                slide_width - PptxInches(2.8),
+                PptxInches(0.15),
+                PptxInches(2.6),
+                PptxInches(0.45)
+            )
+            logo_tf = logo_box.text_frame
+            logo_p = logo_tf.paragraphs[0]
+            logo_run = logo_p.add_run()
+            logo_run.text = 'SB Food Consulting'
+            logo_run.font.size = PptxPt(9)
+            logo_run.font.color.rgb = TERRACOTTA
+            logo_run.font.bold = True
+            logo_run.font.name = 'Calibri'
+            logo_p.alignment = PP_ALIGN.RIGHT
+
+            # NUMERO SLIDE in basso a destra
+            num_box = slide.shapes.add_textbox(
+                slide_width - PptxInches(1.2),
+                slide_height - PptxInches(0.5),
+                PptxInches(1.0),
                 PptxInches(0.4)
             )
-            tf = txBox.text_frame
-            tf.text = 'SB Food Consulting'
-            tf.paragraphs[0].runs[0].font.size = PptxPt(9)
-            tf.paragraphs[0].runs[0].font.color.rgb = TERRACOTTA
-            tf.paragraphs[0].runs[0].font.bold = True
-            tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
+            num_tf = num_box.text_frame
+            num_p = num_tf.paragraphs[0]
+            num_run = num_p.add_run()
+            num_run.text = str(i + 1)
+            num_run.font.size = PptxPt(9)
+            num_run.font.color.rgb = TERRACOTTA
+            num_run.font.name = 'Calibri'
+            num_p.alignment = PP_ALIGN.RIGHT
 
-        # Slide copertina (inserita all'inizio)
-        # Usa l'ultimo layout disponibile o il primo come fallback
+            # SITO WEB in basso a sinistra
+            sito_box = slide.shapes.add_textbox(
+                PptxInches(0.5),
+                slide_height - PptxInches(0.5),
+                PptxInches(3),
+                PptxInches(0.4)
+            )
+            sito_tf = sito_box.text_frame
+            sito_p = sito_tf.paragraphs[0]
+            sito_run = sito_p.add_run()
+            sito_run.text = 'sbfoodconsulting.com'
+            sito_run.font.size = PptxPt(8)
+            sito_run.font.color.rgb = (
+                TERRACOTTA if i % 2 == 0
+                else SCURO
+            )
+            sito_run.font.name = 'Calibri'
+
+        # SLIDE DI COPERTINA — inserisci all'inizio
         layout_index = min(6, len(prs.slide_layouts) - 1)
-        slide_layout = prs.slide_layouts[layout_index]
-        cover = prs.slides.add_slide(slide_layout)
-        bg = cover.background.fill
-        bg.solid()
-        bg.fore_color.rgb = SCURO
+        slide_copertina = prs.slides.add_slide(
+            prs.slide_layouts[layout_index])
 
-        # Logo grande centrato
-        txLogo = cover.shapes.add_textbox(
-            PptxInches(1.5), PptxInches(1.8),
-            PptxInches(7), PptxInches(1.2)
+        # Sposta la copertina all'inizio
+        xml_slides = prs.slides._sldIdLst
+        last = xml_slides[-1]
+        xml_slides.remove(last)
+        xml_slides.insert(0, last)
+
+        # Sfondo copertina scuro
+        fill = slide_copertina.background.fill
+        fill.solid()
+        fill.fore_color.rgb = SCURO
+
+        # Linea decorativa sinistra copertina
+        line_cop = slide_copertina.shapes.add_connector(
+            1,
+            PptxInches(0.4), PptxInches(1.5),
+            PptxInches(0.4), PptxInches(5.5)
         )
-        tfLogo = txLogo.text_frame
-        tfLogo.word_wrap = True
-        pLogo = tfLogo.paragraphs[0]
-        pLogo.text = 'SB Food Consulting'
-        pLogo.runs[0].font.size = PptxPt(40)
-        pLogo.runs[0].font.bold = True
-        pLogo.runs[0].font.color.rgb = TERRACOTTA
-        pLogo.alignment = PP_ALIGN.CENTER
+        line_cop.line.color.rgb = TERRACOTTA
+        line_cop.line.width = PptxPt(3)
+
+        # Brand name
+        brand_box = slide_copertina.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(1.5),
+            PptxInches(8.5), PptxInches(0.6)
+        )
+        brand_tf = brand_box.text_frame
+        brand_p = brand_tf.paragraphs[0]
+        brand_run = brand_p.add_run()
+        brand_run.text = 'SB FOOD CONSULTING'
+        brand_run.font.size = PptxPt(11)
+        brand_run.font.color.rgb = TERRACOTTA
+        brand_run.font.bold = True
+        brand_run.font.name = 'Calibri'
 
         # Titolo presentazione
-        txTitle = cover.shapes.add_textbox(
-            PptxInches(1.5), PptxInches(3.2),
-            PptxInches(7), PptxInches(1)
+        titolo_box = slide_copertina.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(2.2),
+            PptxInches(8.5), PptxInches(2.5)
         )
-        tfTitle = txTitle.text_frame
-        tfTitle.word_wrap = True
-        pTitle = tfTitle.paragraphs[0]
-        pTitle.text = titolo_presentazione
-        pTitle.runs[0].font.size = PptxPt(24)
-        pTitle.runs[0].font.color.rgb = BIANCO
-        pTitle.alignment = PP_ALIGN.CENTER
+        titolo_tf = titolo_box.text_frame
+        titolo_tf.word_wrap = True
+        titolo_p = titolo_tf.paragraphs[0]
+        titolo_run = titolo_p.add_run()
+        # Prende il titolo dalla prima slide originale
+        titolo_testo = 'Presentazione'
+        try:
+            for shape in prs.slides[1].shapes:
+                if shape.has_text_frame:
+                    testo = shape.text_frame.text.strip()
+                    if testo and len(testo) > 3:
+                        titolo_testo = testo[:80]
+                        break
+        except Exception:
+            pass
+        titolo_run.text = titolo_testo
+        titolo_run.font.size = PptxPt(32)
+        titolo_run.font.color.rgb = BIANCO
+        titolo_run.font.bold = True
+        titolo_run.font.name = 'Calibri'
 
-        # Linea decorativa
-        txLine = cover.shapes.add_textbox(
-            PptxInches(3.5), PptxInches(3),
-            PptxInches(3), PptxInches(0.15)
+        # Anno e sito
+        info_box = slide_copertina.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(5.2),
+            PptxInches(8), PptxInches(0.6)
         )
-        tfLine = txLine.text_frame
-        pLine = tfLine.paragraphs[0]
-        pLine.text = '______________________________'
-        pLine.runs[0].font.size = PptxPt(8)
-        pLine.runs[0].font.color.rgb = TERRACOTTA
-        pLine.alignment = PP_ALIGN.CENTER
+        info_tf = info_box.text_frame
+        info_p = info_tf.paragraphs[0]
+        info_run = info_p.add_run()
+        info_run.text = 'sbfoodconsulting.com  |  info@sbfoodconsulting.com'
+        info_run.font.size = PptxPt(9)
+        info_run.font.color.rgb = PptxRGB(0x9a, 0x96, 0x90)
+        info_run.font.name = 'Calibri'
 
-        # Sposta copertina all'inizio
-        xml_slides = prs.slides._sldIdLst
-        slides_list = list(xml_slides)
-        cover_elem = slides_list[-1]
-        xml_slides.remove(cover_elem)
-        xml_slides.insert(0, cover_elem)
+        # SLIDE FINALE CTA
+        slide_finale = prs.slides.add_slide(
+            prs.slide_layouts[layout_index])
 
-        # Slide finale CTA
-        slide_finale = prs.slides.add_slide(slide_layout)
-        bg = slide_finale.background.fill
-        bg.solid()
-        bg.fore_color.rgb = SCURO
+        fill = slide_finale.background.fill
+        fill.solid()
+        fill.fore_color.rgb = TERRACOTTA
 
-        txCta = slide_finale.shapes.add_textbox(
-            PptxInches(1), PptxInches(2.5),
-            PptxInches(8), PptxInches(1.5)
+        # Testo CTA
+        cta_box = slide_finale.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(2.0),
+            PptxInches(8.5), PptxInches(1.5)
         )
-        tfCta = txCta.text_frame
-        tfCta.word_wrap = True
-        pCta = tfCta.paragraphs[0]
-        pCta.text = 'Prenota una consulenza gratuita'
-        pCta.runs[0].font.size = PptxPt(32)
-        pCta.runs[0].font.bold = True
-        pCta.runs[0].font.color.rgb = BIANCO
-        pCta.alignment = PP_ALIGN.CENTER
+        cta_tf = cta_box.text_frame
+        cta_tf.word_wrap = True
+        cta_p = cta_tf.paragraphs[0]
+        cta_run = cta_p.add_run()
+        cta_run.text = 'Prenota una\nconsulenza gratuita.'
+        cta_run.font.size = PptxPt(36)
+        cta_run.font.color.rgb = BIANCO
+        cta_run.font.bold = True
+        cta_run.font.name = 'Calibri'
+        cta_p.alignment = PP_ALIGN.LEFT
 
-        txUrl = slide_finale.shapes.add_textbox(
-            PptxInches(1), PptxInches(4),
-            PptxInches(8), PptxInches(0.8)
+        # Link Calendly
+        link_box = slide_finale.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(4.0),
+            PptxInches(8.5), PptxInches(0.8)
         )
-        tfUrl = txUrl.text_frame
-        pUrl = tfUrl.paragraphs[0]
-        pUrl.text = 'calendly.com/sbfoodconsulting-info/30min'
-        pUrl.runs[0].font.size = PptxPt(16)
-        pUrl.runs[0].font.color.rgb = TERRACOTTA
-        pUrl.alignment = PP_ALIGN.CENTER
+        link_tf = link_box.text_frame
+        link_p = link_tf.paragraphs[0]
+        link_run = link_p.add_run()
+        link_run.text = 'calendly.com/sbfoodconsulting-info/30min'
+        link_run.font.size = PptxPt(14)
+        link_run.font.color.rgb = BIANCO
+        link_run.font.name = 'Calibri'
 
-        # Logo sulla slide finale
-        txLogoFin = slide_finale.shapes.add_textbox(
-            slide_width - PptxInches(2.5),
-            PptxInches(0.1),
-            PptxInches(2.3),
-            PptxInches(0.4)
+        # Brand finale
+        brand_fin_box = slide_finale.shapes.add_textbox(
+            PptxInches(0.8), PptxInches(5.2),
+            PptxInches(8), PptxInches(0.5)
         )
-        tfLogoFin = txLogoFin.text_frame
-        tfLogoFin.text = 'SB Food Consulting'
-        tfLogoFin.paragraphs[0].runs[0].font.size = PptxPt(9)
-        tfLogoFin.paragraphs[0].runs[0].font.color.rgb = TERRACOTTA
-        tfLogoFin.paragraphs[0].runs[0].font.bold = True
-        tfLogoFin.paragraphs[0].alignment = PP_ALIGN.RIGHT
+        brand_fin_tf = brand_fin_box.text_frame
+        brand_fin_p = brand_fin_tf.paragraphs[0]
+        brand_fin_run = brand_fin_p.add_run()
+        brand_fin_run.text = 'SB FOOD CONSULTING'
+        brand_fin_run.font.size = PptxPt(9)
+        brand_fin_run.font.color.rgb = BIANCO
+        brand_fin_run.font.bold = True
+        brand_fin_run.font.name = 'Calibri'
 
         output = io.BytesIO()
         prs.save(output)
@@ -263,7 +340,8 @@ def brandizza_pptx():
             as_attachment=True,
             download_name='presentazione-sbfood-brandizzata.pptx'
         )
+
     except Exception as e:
-        print(f"ERRORE PPTX: {e}")
         traceback.print_exc()
+        print(f"ERRORE PPTX: {e}")
         return jsonify({'error': str(e)}), 500
