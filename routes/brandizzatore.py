@@ -97,239 +97,240 @@ def brandizza_pptx():
         return jsonify({'error': 'Nessun file'}), 400
 
     try:
-        file = request.files['file']
-        prs = Presentation(file)
+        from datetime import datetime
 
+        file = request.files['file']
+        prs_orig = Presentation(file)
+
+        # ── PALETTE ──
         SCURO = PptxRGB(0x37, 0x39, 0x3f)
         TERRACOTTA = PptxRGB(0xc4, 0x62, 0x2d)
         AVORIO = PptxRGB(0xf5, 0xf2, 0xee)
         BIANCO = PptxRGB(0xFF, 0xFF, 0xFF)
+        GRIGIO_TESTO = PptxRGB(0x5a, 0x5a, 0x5a)
+        GRIGIO_INFO = PptxRGB(0x9a, 0x96, 0x90)
 
-        slide_width = prs.slide_width
-        slide_height = prs.slide_height
-
-        for i, slide in enumerate(prs.slides):
-            # SFONDO — alterna scuro/chiaro
-            fill = slide.background.fill
-            fill.solid()
-            if i % 2 == 0:
-                fill.fore_color.rgb = SCURO
-                colore_testo = BIANCO
-                colore_titolo = TERRACOTTA
-                colore_linea = TERRACOTTA
-            else:
-                fill.fore_color.rgb = AVORIO
-                colore_testo = SCURO
-                colore_titolo = SCURO
-                colore_linea = TERRACOTTA
-
-            # LINEA DECORATIVA sinistra
-            line = slide.shapes.add_connector(
-                1,  # MSO_CONNECTOR_TYPE.STRAIGHT
-                PptxInches(0.3), PptxInches(0.8),
-                PptxInches(0.3), PptxInches(6.5)
-            )
-            line.line.color.rgb = TERRACOTTA
-            line.line.width = PptxPt(2)
-
-            # COLORA TUTTI I TESTI esistenti
+        # ── STEP 1: ESTRAI TESTO DA OGNI SLIDE ──
+        slides_data = []
+        for slide in prs_orig.slides:
+            texts = []
             for shape in slide.shapes:
                 if not shape.has_text_frame:
                     continue
                 for para in shape.text_frame.paragraphs:
-                    for run in para.runs:
-                        # Titoli principali
-                        if (shape == slide.shapes[0] and
-                                run.font.size and
-                                run.font.size >= PptxPt(20)):
-                            run.font.color.rgb = colore_titolo
-                            run.font.bold = True
-                        else:
-                            run.font.color.rgb = colore_testo
+                    line = para.text.strip()
+                    if line:
+                        # Stima dimensione font dal primo run
+                        font_size = 0
+                        if para.runs:
+                            font_size = para.runs[0].font.size or 0
+                        texts.append({
+                            'text': line,
+                            'size': font_size
+                        })
 
-                        # Font moderno
-                        run.font.name = 'Calibri'
+            if not texts:
+                continue
 
-            # LOGO SB FOOD CONSULTING in alto a destra
-            logo_box = slide.shapes.add_textbox(
-                slide_width - PptxInches(2.8),
-                PptxInches(0.15),
-                PptxInches(2.6),
-                PptxInches(0.45)
-            )
-            logo_tf = logo_box.text_frame
-            logo_p = logo_tf.paragraphs[0]
-            logo_run = logo_p.add_run()
-            logo_run.text = 'SB Food Consulting'
-            logo_run.font.size = PptxPt(9)
-            logo_run.font.color.rgb = TERRACOTTA
-            logo_run.font.bold = True
-            logo_run.font.name = 'Calibri'
-            logo_p.alignment = PP_ALIGN.RIGHT
+            # Il testo con font più grande = titolo
+            texts.sort(key=lambda x: x['size'], reverse=True)
+            titolo = texts[0]['text']
+            contenuto = [t['text'] for t in texts[1:]
+                         if t['text'] != titolo]
 
-            # NUMERO SLIDE in basso a destra
-            num_box = slide.shapes.add_textbox(
-                slide_width - PptxInches(1.2),
-                slide_height - PptxInches(0.5),
-                PptxInches(1.0),
-                PptxInches(0.4)
-            )
-            num_tf = num_box.text_frame
-            num_p = num_tf.paragraphs[0]
-            num_run = num_p.add_run()
-            num_run.text = str(i + 1)
-            num_run.font.size = PptxPt(9)
-            num_run.font.color.rgb = TERRACOTTA
-            num_run.font.name = 'Calibri'
-            num_p.alignment = PP_ALIGN.RIGHT
+            slides_data.append({
+                'titolo': titolo,
+                'contenuto': contenuto
+            })
 
-            # SITO WEB in basso a sinistra
-            sito_box = slide.shapes.add_textbox(
-                PptxInches(0.5),
-                slide_height - PptxInches(0.5),
-                PptxInches(3),
-                PptxInches(0.4)
-            )
-            sito_tf = sito_box.text_frame
-            sito_p = sito_tf.paragraphs[0]
-            sito_run = sito_p.add_run()
-            sito_run.text = 'sbfoodconsulting.com'
-            sito_run.font.size = PptxPt(8)
-            sito_run.font.color.rgb = (
-                TERRACOTTA if i % 2 == 0
-                else SCURO
-            )
-            sito_run.font.name = 'Calibri'
+        if not slides_data:
+            return jsonify({'error': 'Nessun contenuto trovato'}), 400
 
-        # SLIDE DI COPERTINA — inserisci all'inizio
+        # ── STEP 2: CREA NUOVA PRESENTAZIONE ──
+        prs = Presentation()
+        prs.slide_width = prs_orig.slide_width
+        prs.slide_height = prs_orig.slide_height
+        sw = prs.slide_width
+        sh = prs.slide_height
+
         layout_index = min(6, len(prs.slide_layouts) - 1)
-        slide_copertina = prs.slides.add_slide(
-            prs.slide_layouts[layout_index])
+        blank_layout = prs.slide_layouts[layout_index]
 
-        # Sposta la copertina all'inizio
-        xml_slides = prs.slides._sldIdLst
-        last = xml_slides[-1]
-        xml_slides.remove(last)
-        xml_slides.insert(0, last)
+        # ── Helper: aggiungi rettangolo ──
+        def add_rect(slide, left, top, width, height, color):
+            from pptx.util import Emu
+            shape = slide.shapes.add_shape(
+                1, left, top, width, height)  # MSO_SHAPE.RECTANGLE
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = color
+            shape.line.fill.background()
+            return shape
 
-        # Sfondo copertina scuro
-        fill = slide_copertina.background.fill
+        # ── Helper: aggiungi testo ──
+        def add_text(slide, left, top, width, height,
+                     text, size, color, bold=False,
+                     align=PP_ALIGN.LEFT):
+            box = slide.shapes.add_textbox(left, top, width, height)
+            tf = box.text_frame
+            tf.word_wrap = True
+            p = tf.paragraphs[0]
+            run = p.add_run()
+            run.text = text
+            run.font.size = PptxPt(size)
+            run.font.color.rgb = color
+            run.font.bold = bold
+            run.font.name = 'Calibri'
+            p.alignment = align
+            return tf
+
+        # ── SLIDE COPERTINA ──
+        cover = prs.slides.add_slide(blank_layout)
+        fill = cover.background.fill
         fill.solid()
         fill.fore_color.rgb = SCURO
 
-        # Linea decorativa sinistra copertina
-        line_cop = slide_copertina.shapes.add_connector(
-            1,
-            PptxInches(0.4), PptxInches(1.5),
-            PptxInches(0.4), PptxInches(5.5)
-        )
-        line_cop.line.color.rgb = TERRACOTTA
-        line_cop.line.width = PptxPt(3)
+        # Rettangolo terracotta verticale sinistra (12px)
+        add_rect(cover,
+                 0, 0,
+                 PptxInches(0.17), sh,
+                 TERRACOTTA)
 
-        # Brand name
-        brand_box = slide_copertina.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(1.5),
-            PptxInches(8.5), PptxInches(0.6)
-        )
-        brand_tf = brand_box.text_frame
-        brand_p = brand_tf.paragraphs[0]
-        brand_run = brand_p.add_run()
-        brand_run.text = 'SB FOOD CONSULTING'
-        brand_run.font.size = PptxPt(11)
-        brand_run.font.color.rgb = TERRACOTTA
-        brand_run.font.bold = True
-        brand_run.font.name = 'Calibri'
+        # Brand name uppercase
+        add_text(cover,
+                 PptxInches(0.8), PptxInches(1.5),
+                 PptxInches(8), PptxInches(0.5),
+                 'SB FOOD CONSULTING', 11,
+                 TERRACOTTA, bold=True)
 
-        # Titolo presentazione
-        titolo_box = slide_copertina.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(2.2),
-            PptxInches(8.5), PptxInches(2.5)
-        )
-        titolo_tf = titolo_box.text_frame
-        titolo_tf.word_wrap = True
-        titolo_p = titolo_tf.paragraphs[0]
-        titolo_run = titolo_p.add_run()
-        # Prende il titolo dalla prima slide originale
-        titolo_testo = 'Presentazione'
-        try:
-            for shape in prs.slides[1].shapes:
-                if shape.has_text_frame:
-                    testo = shape.text_frame.text.strip()
-                    if testo and len(testo) > 3:
-                        titolo_testo = testo[:80]
-                        break
-        except Exception:
-            pass
-        titolo_run.text = titolo_testo
-        titolo_run.font.size = PptxPt(32)
-        titolo_run.font.color.rgb = BIANCO
-        titolo_run.font.bold = True
-        titolo_run.font.name = 'Calibri'
+        # Titolo grande
+        add_text(cover,
+                 PptxInches(0.8), PptxInches(2.4),
+                 PptxInches(8), PptxInches(2.5),
+                 slides_data[0]['titolo'], 32,
+                 BIANCO, bold=True)
 
-        # Anno e sito
-        info_box = slide_copertina.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(5.2),
-            PptxInches(8), PptxInches(0.6)
-        )
-        info_tf = info_box.text_frame
-        info_p = info_tf.paragraphs[0]
-        info_run = info_p.add_run()
-        info_run.text = 'sbfoodconsulting.com  |  info@sbfoodconsulting.com'
-        info_run.font.size = PptxPt(9)
-        info_run.font.color.rgb = PptxRGB(0x9a, 0x96, 0x90)
-        info_run.font.name = 'Calibri'
+        # Anno
+        add_text(cover,
+                 PptxInches(0.8), PptxInches(4.5),
+                 PptxInches(3), PptxInches(0.5),
+                 str(datetime.utcnow().year), 14,
+                 GRIGIO_INFO)
 
-        # SLIDE FINALE CTA
-        slide_finale = prs.slides.add_slide(
-            prs.slide_layouts[layout_index])
+        # Sito in basso
+        add_text(cover,
+                 PptxInches(0.8), sh - PptxInches(0.7),
+                 PptxInches(6), PptxInches(0.5),
+                 'sbfoodconsulting.com', 9,
+                 GRIGIO_INFO)
 
-        fill = slide_finale.background.fill
+        # ── SLIDE CONTENUTO ──
+        for i, data in enumerate(slides_data):
+            slide = prs.slides.add_slide(blank_layout)
+            is_odd = (i % 2 == 0)  # 0-indexed, prima slide contenuto = dispari
+
+            fill = slide.background.fill
+            fill.solid()
+
+            if is_odd:
+                # SLIDE DISPARI — sfondo scuro
+                fill.fore_color.rgb = SCURO
+                col_titolo = TERRACOTTA
+                col_testo = AVORIO
+                col_logo = TERRACOTTA
+
+                # Rettangolo accent sinistra (8px)
+                add_rect(slide,
+                         0, 0,
+                         PptxInches(0.11), sh,
+                         TERRACOTTA)
+
+                # Numero slide in basso a sinistra
+                add_text(slide,
+                         PptxInches(0.5), sh - PptxInches(0.6),
+                         PptxInches(1), PptxInches(0.4),
+                         str(i + 1), 9,
+                         TERRACOTTA)
+
+            else:
+                # SLIDE PARI — sfondo chiaro
+                fill.fore_color.rgb = AVORIO
+                col_titolo = SCURO
+                col_testo = GRIGIO_TESTO
+                col_logo = SCURO
+
+                # Rettangolo terracotta in alto (8px)
+                add_rect(slide,
+                         0, 0,
+                         sw, PptxInches(0.11),
+                         TERRACOTTA)
+
+                # Numero slide in basso a destra
+                add_text(slide,
+                         sw - PptxInches(1.2), sh - PptxInches(0.6),
+                         PptxInches(1), PptxInches(0.4),
+                         str(i + 1), 9,
+                         TERRACOTTA, align=PP_ALIGN.RIGHT)
+
+            # Logo in alto a destra
+            add_text(slide,
+                     sw - PptxInches(2.8), PptxInches(0.2),
+                     PptxInches(2.6), PptxInches(0.4),
+                     'SB Food Consulting', 9,
+                     col_logo, bold=True,
+                     align=PP_ALIGN.RIGHT)
+
+            # Titolo
+            add_text(slide,
+                     PptxInches(0.8), PptxInches(1.2),
+                     PptxInches(8), PptxInches(1.2),
+                     data['titolo'], 28,
+                     col_titolo, bold=True)
+
+            # Contenuto con bullet points
+            if data['contenuto']:
+                content_box = slide.shapes.add_textbox(
+                    PptxInches(0.8), PptxInches(2.8),
+                    PptxInches(8), PptxInches(4))
+                content_tf = content_box.text_frame
+                content_tf.word_wrap = True
+
+                for j, punto in enumerate(data['contenuto']):
+                    if j == 0:
+                        p = content_tf.paragraphs[0]
+                    else:
+                        p = content_tf.add_paragraph()
+                    run = p.add_run()
+                    run.text = f'—  {punto}'
+                    run.font.size = PptxPt(16)
+                    run.font.color.rgb = col_testo
+                    run.font.name = 'Calibri'
+                    p.space_after = PptxPt(12)
+
+        # ── SLIDE FINALE CTA ──
+        finale = prs.slides.add_slide(blank_layout)
+        fill = finale.background.fill
         fill.solid()
         fill.fore_color.rgb = TERRACOTTA
 
-        # Testo CTA
-        cta_box = slide_finale.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(2.0),
-            PptxInches(8.5), PptxInches(1.5)
-        )
-        cta_tf = cta_box.text_frame
-        cta_tf.word_wrap = True
-        cta_p = cta_tf.paragraphs[0]
-        cta_run = cta_p.add_run()
-        cta_run.text = 'Prenota una\nconsulenza gratuita.'
-        cta_run.font.size = PptxPt(36)
-        cta_run.font.color.rgb = BIANCO
-        cta_run.font.bold = True
-        cta_run.font.name = 'Calibri'
-        cta_p.alignment = PP_ALIGN.LEFT
+        add_text(finale,
+                 PptxInches(0.8), PptxInches(2.0),
+                 PptxInches(8.5), PptxInches(1.8),
+                 'Prenota una\nconsulenza gratuita.', 36,
+                 BIANCO, bold=True)
 
-        # Link Calendly
-        link_box = slide_finale.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(4.0),
-            PptxInches(8.5), PptxInches(0.8)
-        )
-        link_tf = link_box.text_frame
-        link_p = link_tf.paragraphs[0]
-        link_run = link_p.add_run()
-        link_run.text = 'calendly.com/sbfoodconsulting-info/30min'
-        link_run.font.size = PptxPt(14)
-        link_run.font.color.rgb = BIANCO
-        link_run.font.name = 'Calibri'
+        add_text(finale,
+                 PptxInches(0.8), PptxInches(4.0),
+                 PptxInches(8.5), PptxInches(0.8),
+                 'calendly.com/sbfoodconsulting-info/30min', 14,
+                 BIANCO)
 
-        # Brand finale
-        brand_fin_box = slide_finale.shapes.add_textbox(
-            PptxInches(0.8), PptxInches(5.2),
-            PptxInches(8), PptxInches(0.5)
-        )
-        brand_fin_tf = brand_fin_box.text_frame
-        brand_fin_p = brand_fin_tf.paragraphs[0]
-        brand_fin_run = brand_fin_p.add_run()
-        brand_fin_run.text = 'SB FOOD CONSULTING'
-        brand_fin_run.font.size = PptxPt(9)
-        brand_fin_run.font.color.rgb = BIANCO
-        brand_fin_run.font.bold = True
-        brand_fin_run.font.name = 'Calibri'
+        add_text(finale,
+                 PptxInches(0.8), sh - PptxInches(0.7),
+                 PptxInches(8), PptxInches(0.5),
+                 'SB FOOD CONSULTING', 9,
+                 BIANCO, bold=True)
 
+        # ── OUTPUT ──
         output = io.BytesIO()
         prs.save(output)
         output.seek(0)
