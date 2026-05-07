@@ -11,3 +11,4 @@ reportlab
 anthropic
 python-docx
 python-pptx
+weasyprint
