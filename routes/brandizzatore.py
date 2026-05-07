@@ -8,6 +8,7 @@ from pptx.dml.color import RGBColor as PptxRGB
 from pptx.enum.text import PP_ALIGN
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -94,6 +95,15 @@ def brandizza_word():
 
 @brandizzatore_bp.route('/api/brandizza/pptx', methods=['POST'])
 def brandizza_pptx():
+    libreoffice_path = shutil.which('libreoffice') or \
+                       shutil.which('soffice')
+    print(f"LibreOffice trovato: {libreoffice_path}")
+
+    if not libreoffice_path:
+        return jsonify({
+            'error': 'LibreOffice non disponibile'
+        }), 500
+
     if 'file' not in request.files:
         return jsonify({'error': 'Nessun file'}), 400
 
@@ -261,7 +271,7 @@ def brandizza_pptx():
     # Converti in PDF con LibreOffice
     tmp_dir = tempfile.mkdtemp()
     subprocess.run([
-        'libreoffice', '--headless', '--convert-to', 'pdf',
+        libreoffice_path, '--headless', '--convert-to', 'pdf',
         '--outdir', tmp_dir, tmp_pptx_path
     ], check=True, timeout=60)
 
