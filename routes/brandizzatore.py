@@ -155,7 +155,9 @@ def brandizza_pptx():
             tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
 
         # Slide copertina (inserita all'inizio)
-        slide_layout = prs.slide_layouts[6]  # blank layout
+        # Usa l'ultimo layout disponibile o il primo come fallback
+        layout_index = min(6, len(prs.slide_layouts) - 1)
+        slide_layout = prs.slide_layouts[layout_index]
         cover = prs.slides.add_slide(slide_layout)
         bg = cover.background.fill
         bg.solid()
