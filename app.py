@@ -7,6 +7,12 @@ from models import db
 
 load_dotenv()
 
+try:
+    from weasyprint import HTML as WeasyHTML
+    print("WeasyPrint OK")
+except Exception as e:
+    print(f"WeasyPrint non disponibile: {e}")
+
 app = Flask(__name__)
 
 # Database

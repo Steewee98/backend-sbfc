@@ -8,7 +8,6 @@ from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from pptx import Presentation
-from weasyprint import HTML as WeasyHTML
 
 brandizzatore_bp = Blueprint('brandizzatore', __name__)
 
@@ -229,10 +228,15 @@ nessun testo prima o dopo, nessun markdown."""
 
 
 def converti_html_in_pdf(html_content):
-    pdf_buffer = io.BytesIO()
-    WeasyHTML(string=html_content).write_pdf(pdf_buffer)
-    pdf_buffer.seek(0)
-    return pdf_buffer
+    try:
+        from weasyprint import HTML as WeasyHTML
+        pdf_buffer = io.BytesIO()
+        WeasyHTML(string=html_content).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        return pdf_buffer
+    except ImportError:
+        raise Exception(
+            "WeasyPrint non disponibile sul server")
 
 
 @brandizzatore_bp.route('/api/brandizza/pptx', methods=['POST'])
