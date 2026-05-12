@@ -34,7 +34,17 @@ CORS(app, resources={
             "http://localhost:3000"
         ],
         "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "X-Admin-Token"]
+        "allow_headers": [
+            "Content-Type",
+            "X-Admin-Token",
+            "Accept",
+            "Authorization"
+        ],
+        "expose_headers": [
+            "Content-Disposition",
+            "Content-Type"
+        ],
+        "supports_credentials": False
     }
 })
 
