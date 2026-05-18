@@ -3,6 +3,7 @@ from functools import wraps
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from models import db, Contatto, Studente, Pagamento
+from routes.checklist import RisultatoChecklist
 
 stats_bp = Blueprint('stats', __name__)
 
@@ -61,4 +62,5 @@ def get_stats():
         'incasso_questo_mese': float(incasso_questo_mese),
         'nuovi_contatti': [c.to_dict() for c in nuovi_contatti],
         'pagamenti_recenti': [p.to_dict() for p in pagamenti_recenti],
+        'checklist_completate': RisultatoChecklist.query.count(),
     })
