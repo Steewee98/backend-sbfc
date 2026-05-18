@@ -1,0 +1,87 @@
+from flask import Blueprint, request, jsonify
+from models import db
+from datetime import datetime
+import os
+
+checklist_bp = Blueprint('checklist', __name__)
+
+
+class RisultatoChecklist(db.Model):
+    __tablename__ = 'risultati_checklist'
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(200))
+    email = db.Column(db.String(200))
+    punteggio_totale = db.Column(db.Integer)
+    punteggio_food_cost = db.Column(db.Integer)
+    punteggio_personale = db.Column(db.Integer)
+    punteggio_menu = db.Column(db.Integer)
+    punteggio_comunicazione = db.Column(db.Integer)
+    punteggio_numeri = db.Column(db.Integer)
+    risposte = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@checklist_bp.route('/api/checklist', methods=['POST'])
+def salva_checklist():
+    data = request.json
+
+    risultato = RisultatoChecklist(
+        nome=data.get('nome'),
+        email=data.get('email'),
+        punteggio_totale=data.get('punteggio_totale'),
+        punteggio_food_cost=data.get('punteggio_food_cost'),
+        punteggio_personale=data.get('punteggio_personale'),
+        punteggio_menu=data.get('punteggio_menu'),
+        punteggio_comunicazione=data.get('punteggio_comunicazione'),
+        punteggio_numeri=data.get('punteggio_numeri'),
+        risposte=data.get('risposte', [])
+    )
+    db.session.add(risultato)
+    db.session.commit()
+
+    try:
+        from utils.email import invia_email
+        invia_email(
+            'info@stefanodemartis.com',
+            'Simone',
+            f'Nuova checklist — {data.get("nome")} ({data.get("punteggio_totale")}/20)',
+            f"""<h3>Nuova checklist completata</h3>
+            <p><strong>Nome:</strong> {data.get('nome')}</p>
+            <p><strong>Email:</strong> {data.get('email')}</p>
+            <p><strong>Punteggio:</strong> {data.get('punteggio_totale')}/20</p>
+            <p><strong>Food Cost:</strong> {data.get('punteggio_food_cost')}/4</p>
+            <p><strong>Personale:</strong> {data.get('punteggio_personale')}/4</p>
+            <p><strong>Menu:</strong> {data.get('punteggio_menu')}/4</p>
+            <p><strong>Comunicazione:</strong> {data.get('punteggio_comunicazione')}/4</p>
+            <p><strong>Numeri:</strong> {data.get('punteggio_numeri')}/4</p>
+            <a href="https://www.sbfoodconsulting.com/admin.html">Apri gestionale →</a>"""
+        )
+    except Exception as e:
+        print(f"Email non inviata: {e}")
+
+    return jsonify({'success': True}), 201
+
+
+@checklist_bp.route('/api/checklist', methods=['GET'])
+def get_checklist():
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    risultati = RisultatoChecklist.query\
+        .order_by(RisultatoChecklist.created_at.desc())\
+        .all()
+
+    return jsonify([{
+        'id': r.id,
+        'nome': r.nome,
+        'email': r.email,
+        'punteggio_totale': r.punteggio_totale,
+        'punteggio_food_cost': r.punteggio_food_cost,
+        'punteggio_personale': r.punteggio_personale,
+        'punteggio_menu': r.punteggio_menu,
+        'punteggio_comunicazione': r.punteggio_comunicazione,
+        'punteggio_numeri': r.punteggio_numeri,
+        'risposte': r.risposte,
+        'created_at': r.created_at.isoformat()
+    } for r in risultati])
