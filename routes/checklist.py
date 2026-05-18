@@ -42,7 +42,7 @@ def salva_checklist():
     try:
         from utils.email import invia_email
         invia_email(
-            'info@stefanodemartis.com',
+            'info@sbfoodconsulting.com',
             'Simone',
             f'Nuova checklist — {data.get("nome")} ({data.get("punteggio_totale")}/20)',
             f"""<h3>Nuova checklist completata</h3>
