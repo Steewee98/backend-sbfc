@@ -81,6 +81,19 @@ def ensure_db():
     if not _db_initialized:
         try:
             db.create_all()
+            # Aggiungi colonne mancanti a tabelle esistenti
+            with db.engine.connect() as conn:
+                for col, ddl in [
+                    ('email_inviata', 'BOOLEAN DEFAULT FALSE'),
+                    ('tipo_email', 'VARCHAR(20)'),
+                ]:
+                    try:
+                        conn.execute(db.text(
+                            f'ALTER TABLE risultati_checklist ADD COLUMN {col} {ddl}'
+                        ))
+                        conn.commit()
+                    except Exception:
+                        pass  # colonna già esistente
             _db_initialized = True
             _db_error = None
             print("Database tables created successfully")

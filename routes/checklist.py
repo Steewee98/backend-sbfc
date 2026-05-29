@@ -18,6 +18,8 @@ class RisultatoChecklist(db.Model):
     punteggio_comunicazione = db.Column(db.Integer)
     punteggio_numeri = db.Column(db.Integer)
     risposte = db.Column(db.JSON)
+    email_inviata = db.Column(db.Boolean, default=False)
+    tipo_email = db.Column(db.String(20))  # 'critico', 'medio', 'buono'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -74,16 +76,22 @@ def salva_checklist():
         )
 
         if punteggio <= 8:
+            tipo = 'critico'
             oggetto = "Il tuo locale ha bisogno di un intervento — SB Food Consulting"
             corpo = email_checklist_critico(nome, punteggio, data)
         elif punteggio <= 14:
+            tipo = 'medio'
             oggetto = "Abbiamo trovato le aree critiche del tuo locale — SB Food Consulting"
             corpo = email_checklist_medio(nome, punteggio, data)
         else:
+            tipo = 'buono'
             oggetto = "Il tuo locale ha basi solide — ecco il prossimo passo"
             corpo = email_checklist_buono(nome, punteggio, data)
 
-        invia_email(email, nome, oggetto, corpo)
+        if invia_email(email, nome, oggetto, corpo):
+            risultato.email_inviata = True
+            risultato.tipo_email = tipo
+            db.session.commit()
 
     except Exception as e:
         print(f"Email checklist non inviata: {e}")
@@ -112,5 +120,7 @@ def get_checklist():
         'punteggio_comunicazione': r.punteggio_comunicazione,
         'punteggio_numeri': r.punteggio_numeri,
         'risposte': r.risposte,
+        'email_inviata': r.email_inviata or False,
+        'tipo_email': r.tipo_email,
         'created_at': r.created_at.isoformat()
     } for r in risultati])
