@@ -99,6 +99,63 @@ def salva_checklist():
     return jsonify({'success': True}), 201
 
 
+def _build_checklist_email(r):
+    """Genera tipo, oggetto e corpo email per un risultato checklist."""
+    from utils.templates_checklist import (
+        email_checklist_critico, email_checklist_medio, email_checklist_buono
+    )
+    data = {
+        'punteggio_food_cost': r.punteggio_food_cost,
+        'punteggio_personale': r.punteggio_personale,
+        'punteggio_menu': r.punteggio_menu,
+        'punteggio_comunicazione': r.punteggio_comunicazione,
+        'punteggio_numeri': r.punteggio_numeri,
+    }
+    p = r.punteggio_totale or 0
+    if p <= 8:
+        tipo = 'critico'
+        oggetto = "Il tuo locale ha bisogno di un intervento — SB Food Consulting"
+        corpo = email_checklist_critico(r.nome, p, data)
+    elif p <= 14:
+        tipo = 'medio'
+        oggetto = "Abbiamo trovato le aree critiche del tuo locale — SB Food Consulting"
+        corpo = email_checklist_medio(r.nome, p, data)
+    else:
+        tipo = 'buono'
+        oggetto = "Il tuo locale ha basi solide — ecco il prossimo passo"
+        corpo = email_checklist_buono(r.nome, p, data)
+    return tipo, oggetto, corpo
+
+
+@checklist_bp.route('/api/checklist/<int:id>/invia-email', methods=['POST'])
+def invia_email_checklist(id):
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    r = RisultatoChecklist.query.get_or_404(id)
+    tipo, oggetto, corpo = _build_checklist_email(r)
+
+    from utils.email import invia_email
+    if invia_email(r.email, r.nome, oggetto, corpo):
+        r.email_inviata = True
+        r.tipo_email = tipo
+        db.session.commit()
+        return jsonify({'success': True, 'tipo_email': tipo})
+    return jsonify({'error': 'Invio fallito'}), 500
+
+
+@checklist_bp.route('/api/checklist/<int:id>/email-preview', methods=['GET'])
+def preview_email_checklist(id):
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    r = RisultatoChecklist.query.get_or_404(id)
+    tipo, oggetto, corpo = _build_checklist_email(r)
+    return corpo, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
 @checklist_bp.route('/api/checklist', methods=['GET'])
 def get_checklist():
     token = request.headers.get('X-Admin-Token')
