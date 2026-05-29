@@ -39,6 +39,7 @@ def salva_checklist():
     db.session.add(risultato)
     db.session.commit()
 
+    # Email notifica a Simone
     try:
         from utils.email import invia_email
         invia_email(
@@ -58,6 +59,34 @@ def salva_checklist():
         )
     except Exception as e:
         print(f"Email non inviata: {e}")
+
+    # Email automatica all'utente in base al punteggio
+    punteggio = data.get('punteggio_totale', 0)
+    nome = data.get('nome', '')
+    email = data.get('email', '')
+
+    try:
+        from utils.email import invia_email
+        from utils.templates_checklist import (
+            email_checklist_critico,
+            email_checklist_medio,
+            email_checklist_buono
+        )
+
+        if punteggio <= 8:
+            oggetto = "Il tuo locale ha bisogno di un intervento — SB Food Consulting"
+            corpo = email_checklist_critico(nome, punteggio, data)
+        elif punteggio <= 14:
+            oggetto = "Abbiamo trovato le aree critiche del tuo locale — SB Food Consulting"
+            corpo = email_checklist_medio(nome, punteggio, data)
+        else:
+            oggetto = "Il tuo locale ha basi solide — ecco il prossimo passo"
+            corpo = email_checklist_buono(nome, punteggio, data)
+
+        invia_email(email, nome, oggetto, corpo)
+
+    except Exception as e:
+        print(f"Email checklist non inviata: {e}")
 
     return jsonify({'success': True}), 201
 
