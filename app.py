@@ -61,6 +61,7 @@ from routes.ai import ai_bp
 from routes.brandizzatore import brandizzatore_bp
 from routes.checklist import checklist_bp
 from routes.whatsapp_logs import whatsapp_logs_bp
+from routes.google_leads import google_leads_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -71,6 +72,7 @@ app.register_blueprint(ai_bp)
 app.register_blueprint(brandizzatore_bp)
 app.register_blueprint(checklist_bp)
 app.register_blueprint(whatsapp_logs_bp)
+app.register_blueprint(google_leads_bp)
 
 
 # Ensure tables exist

@@ -12,3 +12,5 @@ anthropic
 python-docx
 python-pptx
 weasyprint
+gspread
+google-auth
