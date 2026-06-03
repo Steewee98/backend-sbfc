@@ -1,11 +1,12 @@
 import requests
 import os
+from models import db, MessaggioWhatsapp
 
 ULTRAMSG_INSTANCE = os.environ.get('ULTRAMSG_INSTANCE', 'instance179124')
 ULTRAMSG_TOKEN = os.environ.get('ULTRAMSG_TOKEN', 'zct26h140v589icp')
 
 
-def invia_whatsapp(telefono, messaggio):
+def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
     try:
         numero = telefono.strip()
         if not numero.startswith('+'):
@@ -27,8 +28,24 @@ def invia_whatsapp(telefono, messaggio):
 
         res = requests.post(url, data=payload, timeout=10)
         result = res.json()
-        print(f"WhatsApp inviato a {numero}: {result}")
-        return True
+        stato = 'inviato' if result.get('sent') == 'true' else 'errore'
+        print(f"WhatsApp {stato} a {numero}: {result}")
+
+        # Salva nel database
+        try:
+            log = MessaggioWhatsapp(
+                nome=nome,
+                telefono=numero,
+                messaggio=messaggio,
+                stato=stato,
+                tipo=tipo
+            )
+            db.session.add(log)
+            db.session.commit()
+        except Exception as e:
+            print(f"Errore salvataggio log WA: {e}")
+
+        return stato == 'inviato'
 
     except Exception as e:
         print(f"Errore WhatsApp: {e}")

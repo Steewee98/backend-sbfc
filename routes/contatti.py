@@ -168,7 +168,7 @@ https://calendly.com/sbfoodconsulting-info/30min
 A presto,
 Simone Braghetta
 SB Food Consulting"""
-                invia_whatsapp(telefono, messaggio_wa)
+                invia_whatsapp(telefono, messaggio_wa, nome=nome, tipo='form_contatti')
             except Exception as e:
                 print(f"WhatsApp non inviato: {e}")
     else:
@@ -212,7 +212,7 @@ https://calendly.com/sbfoodconsulting-info/30min
 A presto,
 Simone Braghetta
 SB Food Consulting"""
-                invia_whatsapp(telefono, messaggio_wa)
+                invia_whatsapp(telefono, messaggio_wa, nome=nome, tipo='form_contatti')
             except Exception as e:
                 print(f"WhatsApp non inviato: {e}")
 

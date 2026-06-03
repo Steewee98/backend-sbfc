@@ -111,6 +111,18 @@ class Pagamento(db.Model):
         }
 
 
+class MessaggioWhatsapp(db.Model):
+    __tablename__ = 'messaggi_whatsapp'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(200))
+    telefono = db.Column(db.String(50))
+    messaggio = db.Column(db.Text)
+    stato = db.Column(db.String(50), default='inviato')
+    tipo = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class Visita(db.Model):
     __tablename__ = 'visite'
 
