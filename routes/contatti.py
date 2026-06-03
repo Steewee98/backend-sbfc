@@ -6,6 +6,7 @@ from datetime import datetime
 from models import db, Contatto
 from utils.email import invia_email
 from utils.templates import email_benvenuto_contatto
+from utils.whatsapp import invia_whatsapp
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,24 @@ def crea_contatto():
             )
         except Exception as e:
             print(f"Email lead magnet non inviata: {e}")
+
+        if telefono:
+            try:
+                messaggio_wa = f"""Buongiorno {nome},
+
+grazie per averci contattato tramite SB Food Consulting.
+
+Sono Simone Braghetta. Ho ricevuto la sua richiesta e la contatterò personalmente entro 24 ore.
+
+Nel frattempo può prenotare una chiamata gratuita di 30 minuti direttamente qui:
+https://calendly.com/sbfoodconsulting-info/30min
+
+A presto,
+Simone Braghetta
+SB Food Consulting"""
+                invia_whatsapp(telefono, messaggio_wa)
+            except Exception as e:
+                print(f"WhatsApp non inviato: {e}")
     else:
         # Email benvenuto normale
         try:
@@ -178,6 +197,24 @@ def crea_contatto():
             )
         except Exception as e:
             logger.error(f"Email non inviata: {e}")
+
+        if telefono:
+            try:
+                messaggio_wa = f"""Buongiorno {nome},
+
+grazie per averci contattato tramite SB Food Consulting.
+
+Sono Simone Braghetta. Ho ricevuto la sua richiesta e la contatterò personalmente entro 24 ore.
+
+Nel frattempo può prenotare una chiamata gratuita di 30 minuti direttamente qui:
+https://calendly.com/sbfoodconsulting-info/30min
+
+A presto,
+Simone Braghetta
+SB Food Consulting"""
+                invia_whatsapp(telefono, messaggio_wa)
+            except Exception as e:
+                print(f"WhatsApp non inviato: {e}")
 
     return jsonify({'success': True, 'id': contatto.id}), 201
 
