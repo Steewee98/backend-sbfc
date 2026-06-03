@@ -36,31 +36,43 @@ def sync_leads():
             reader = csv.DictReader(io.StringIO(content))
 
             for riga in reader:
-                # Estrai campi — prova vari nomi colonna
+                # Estrai campi — prima match esatto, poi fuzzy
                 nome = ''
-                for key in riga.keys():
-                    if any(k in key.lower() for k in
-                           ['name', 'nome', 'full']):
-                        nome = str(riga[key]).strip()
-                        if nome:
-                            break
+                # Priorità: full_name > nome > fuzzy
+                for exact in ['full_name', 'Full Name', 'Nome',
+                              'nome']:
+                    if exact in riga and str(riga[exact]).strip():
+                        nome = str(riga[exact]).strip()
+                        break
+                if not nome:
+                    for key in riga.keys():
+                        kl = key.lower()
+                        if kl in ['full_name', 'nome', 'name'] \
+                           or 'full' in kl:
+                            nome = str(riga[key]).strip()
+                            if nome:
+                                break
 
                 telefono = ''
-                for key in riga.keys():
-                    if any(k in key.lower() for k in
-                           ['phone', 'telefono', 'number',
-                            'numero', 'mobile']):
-                        telefono = str(riga[key]).strip()
-                        if telefono:
-                            break
+                for exact in ['phone', 'Phone', 'Phone Number',
+                              'Telefono', 'telefono', 'mobile']:
+                    if exact in riga and str(riga[exact]).strip():
+                        telefono = str(riga[exact]).strip()
+                        break
+                if not telefono:
+                    for key in riga.keys():
+                        kl = key.lower()
+                        if kl in ['phone', 'telefono', 'mobile',
+                                  'phone_number']:
+                            telefono = str(riga[key]).strip()
+                            if telefono:
+                                break
 
                 email = ''
-                for key in riga.keys():
-                    if 'email' in key.lower() or \
-                       'mail' in key.lower():
-                        email = str(riga[key]).strip()
-                        if email:
-                            break
+                for exact in ['email', 'Email', 'e-mail']:
+                    if exact in riga and str(riga[exact]).strip():
+                        email = str(riga[exact]).strip()
+                        break
 
                 if not telefono and not email:
                     continue
@@ -161,3 +173,67 @@ Simone Braghetta"""
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@google_leads_bp.route('/api/fix-lead-names', methods=['POST'])
+def fix_lead_names():
+    """Corregge i nomi dei lead importati con nome sbagliato."""
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        # Leggi il foglio per avere i nomi corretti
+        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid=0"
+        res = requests.get(url, timeout=15)
+        if res.status_code != 200:
+            return jsonify({'error': 'Cannot read sheet'}), 500
+
+        content = res.content.decode('utf-8')
+        reader = csv.DictReader(io.StringIO(content))
+
+        corretti = 0
+        for riga in reader:
+            telefono = str(riga.get('phone', '')).strip()
+            full_name = str(riga.get('full_name', '')).strip()
+
+            if not telefono or not full_name:
+                continue
+            if telefono.startswith('p:'):
+                telefono = telefono[2:].strip()
+            if '<test lead' in full_name.lower():
+                continue
+
+            contatto = Contatto.query.filter_by(
+                telefono=telefono).first()
+            if contatto and contatto.nome == 'Nuova':
+                contatto.nome = full_name.split()[0]
+                contatto.cognome = ' '.join(
+                    full_name.split()[1:]) if len(
+                    full_name.split()) > 1 else ''
+                db.session.commit()
+                corretti += 1
+
+        return jsonify({'success': True, 'corretti': corretti})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@google_leads_bp.route('/api/auto-sync-leads', methods=['POST'])
+def auto_sync_leads():
+    """Endpoint per cron automatico — usa token dedicato."""
+    cron_token = request.headers.get('X-Cron-Token') or \
+                 request.args.get('token')
+    expected = os.environ.get('CRON_TOKEN',
+                              os.environ.get('ADMIN_TOKEN'))
+    if cron_token != expected:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Richiama sync_leads internamente
+    import flask
+    with flask.current_app.test_request_context(
+            '/api/sync-leads',
+            method='POST',
+            headers={'X-Admin-Token': os.environ.get('ADMIN_TOKEN')}):
+        return sync_leads()
