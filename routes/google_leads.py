@@ -72,6 +72,15 @@ def sync_leads():
                 if email in ['', 'nan', 'None']:
                     email = ''
 
+                # Rimuovi prefisso "p:" dai numeri Meta Lead Form
+                if telefono.startswith('p:'):
+                    telefono = telefono[2:].strip()
+
+                # Salta test lead
+                if '<test lead' in nome.lower() or \
+                   '<test lead' in telefono.lower():
+                    continue
+
                 if not telefono and not email:
                     continue
 
