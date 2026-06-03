@@ -1,5 +1,7 @@
 import os
 import traceback
+import threading
+import time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -124,6 +126,30 @@ def health():
 def handle_exception(e):
     traceback.print_exc()
     return jsonify({'error': 'Internal server error', 'detail': str(e), 'type': type(e).__name__}), 500
+
+
+# --- Background sync Google Sheets ogni 2 minuti ---
+SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', 120))  # secondi
+
+def _background_sync():
+    """Controlla il foglio Google ogni 2 min e importa nuovi lead."""
+    time.sleep(30)  # attendi avvio app
+    while True:
+        try:
+            with app.app_context():
+                from routes.google_leads import _do_sync
+                nuovi, già = _do_sync()
+                if nuovi > 0:
+                    print(f"[AUTO-SYNC] {nuovi} nuovi lead importati")
+        except Exception as e:
+            print(f"[AUTO-SYNC] Errore: {e}")
+        time.sleep(SYNC_INTERVAL)
+
+# Avvia solo in produzione (gunicorn) o se esplicito
+if not app.debug or os.environ.get('FORCE_SYNC'):
+    _sync_thread = threading.Thread(target=_background_sync, daemon=True)
+    _sync_thread.start()
+    print(f"[AUTO-SYNC] Avviato — controlla ogni {SYNC_INTERVAL}s")
 
 
 if __name__ == '__main__':
