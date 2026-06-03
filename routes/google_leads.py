@@ -1,31 +1,17 @@
 from flask import Blueprint, request, jsonify
-import gspread
-from google.oauth2.service_account import Credentials
+import requests
 from models import db, Contatto
 from utils.whatsapp import invia_whatsapp
 from utils.email import invia_email
 from utils.templates import email_benvenuto_contatto
 from datetime import datetime
 import os
-import json
+import csv
+import io
 
 google_leads_bp = Blueprint('google_leads', __name__)
 
 SPREADSHEET_ID = '1PWYr4y1X3SQg9VGf2I1VR6p2hheDAyn3JaH5VztLnNw'
-
-
-def get_google_client():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-    if not creds_json:
-        raise Exception("GOOGLE_CREDENTIALS_JSON non configurato")
-
-    creds_dict = json.loads(creds_json)
-    scopes = [
-        'https://www.googleapis.com/auth/spreadsheets.readonly'
-    ]
-    creds = Credentials.from_service_account_info(
-        creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
 
 
 @google_leads_bp.route('/api/sync-leads', methods=['POST'])
@@ -35,51 +21,86 @@ def sync_leads():
         return jsonify({'error': 'Unauthorized'}), 401
 
     try:
-        client = get_google_client()
-        sheet = client.open_by_key(SPREADSHEET_ID)
-
         nuovi = 0
         già_presenti = 0
 
-        for worksheet in sheet.worksheets():
-            righe = worksheet.get_all_records()
+        # Legge il foglio come CSV pubblico
+        for gid in ['0', '1', '2', '3']:
+            url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
 
-            for riga in righe:
-                nome = str(riga.get('Full Name', '') or
-                           riga.get('Nome', '') or
-                           riga.get('full_name', '')).strip()
+            res = requests.get(url, timeout=15)
+            if res.status_code != 200:
+                continue
 
-                telefono = str(riga.get('Phone Number', '') or
-                               riga.get('Telefono', '') or
-                               riga.get('phone_number', '')).strip()
+            content = res.content.decode('utf-8')
+            reader = csv.DictReader(io.StringIO(content))
 
-                email = str(riga.get('Email', '') or
-                            riga.get('email', '')).strip()
+            for riga in reader:
+                # Estrai campi — prova vari nomi colonna
+                nome = ''
+                for key in riga.keys():
+                    if any(k in key.lower() for k in
+                           ['name', 'nome', 'full']):
+                        nome = str(riga[key]).strip()
+                        if nome:
+                            break
+
+                telefono = ''
+                for key in riga.keys():
+                    if any(k in key.lower() for k in
+                           ['phone', 'telefono', 'number',
+                            'numero', 'mobile']):
+                        telefono = str(riga[key]).strip()
+                        if telefono:
+                            break
+
+                email = ''
+                for key in riga.keys():
+                    if 'email' in key.lower() or \
+                       'mail' in key.lower():
+                        email = str(riga[key]).strip()
+                        if email:
+                            break
 
                 if not telefono and not email:
                     continue
 
-                # Controlla se esiste già
+                if nome in ['', 'nan', 'None']:
+                    nome = ''
+                if telefono in ['', 'nan', 'None']:
+                    telefono = ''
+                if email in ['', 'nan', 'None']:
+                    email = ''
+
+                if not telefono and not email:
+                    continue
+
+                # Controlla duplicati
                 esistente = None
                 if telefono:
-                    esistente = Contatto.query.filter_by(
-                        telefono=telefono).first()
+                    esistente = Contatto.query\
+                        .filter_by(telefono=telefono).first()
                 if not esistente and email:
-                    esistente = Contatto.query.filter_by(
-                        email=email).first()
+                    esistente = Contatto.query\
+                        .filter_by(email=email).first()
 
                 if esistente:
                     già_presenti += 1
                     continue
 
-                # Salva nuovo contatto
+                # Salva
+                nome_breve = nome.split()[0] \
+                             if nome else 'Contatto'
+
                 contatto = Contatto(
-                    nome=nome.split()[0] if nome else 'Contatto',
-                    cognome=' '.join(nome.split()[1:]) if nome else '',
+                    nome=nome_breve,
+                    cognome=' '.join(nome.split()[1:])
+                             if nome and len(nome.split()) > 1
+                             else '',
                     email=email,
                     telefono=telefono,
                     tipo_locale='Lead Meta Ads',
-                    messaggio='Importato da Google Sheets - Meta Lead Form',
+                    messaggio='Da Google Sheets Meta Lead Form',
                     stato='nuovo',
                     created_at=datetime.utcnow()
                 )
@@ -87,37 +108,35 @@ def sync_leads():
                 db.session.commit()
                 nuovi += 1
 
-                nome_breve = nome.split()[0] if nome else 'Contatto'
-
-                # Invia WhatsApp
+                # WhatsApp
                 if telefono:
                     try:
-                        messaggio_wa = f"""Buongiorno {nome_breve},
+                        msg = f"""Buongiorno {nome_breve},
 
 grazie per il suo interesse in SB Food Consulting.
 
-Sono Simone Braghetta. Ho ricevuto la sua richiesta e sarò felice di parlare del suo locale.
+Sono Simone Braghetta. Sarò felice di parlare del suo locale.
 
-Prenoti una chiamata gratuita di 30 minuti:
+Prenoti una chiamata gratuita:
 https://calendly.com/sbfoodconsulting-info/30min
 
 A presto,
-Simone Braghetta
-SB Food Consulting"""
-                        invia_whatsapp(
-                            telefono, messaggio_wa,
+Simone Braghetta"""
+                        invia_whatsapp(telefono, msg,
                             nome=nome_breve,
                             tipo='meta_leads')
                     except Exception as e:
-                        print(f"WhatsApp error: {e}")
+                        print(f"WA error: {e}")
 
-                # Invia email
+                # Email
                 if email:
                     try:
-                        corpo = email_benvenuto_contatto(nome_breve)
+                        corpo = email_benvenuto_contatto(
+                            nome_breve)
                         invia_email(
                             email, nome_breve,
-                            "Grazie per il tuo interesse — SB Food Consulting",
+                            "Grazie per il tuo interesse — "
+                            "SB Food Consulting",
                             corpo
                         )
                     except Exception as e:
