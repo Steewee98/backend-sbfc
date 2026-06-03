@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 import requests
-from models import db, Contatto
+from models import db, Contatto, MessaggioWhatsapp
 from utils.whatsapp import invia_whatsapp
 from utils.email import invia_email
 from utils.templates import email_benvenuto_contatto
@@ -204,15 +204,27 @@ def fix_lead_names():
             if '<test lead' in full_name.lower():
                 continue
 
+            nome_breve = full_name.split()[0]
+
+            # Fix contatti
             contatto = Contatto.query.filter_by(
                 telefono=telefono).first()
             if contatto and contatto.nome == 'Nuova':
-                contatto.nome = full_name.split()[0]
+                contatto.nome = nome_breve
                 contatto.cognome = ' '.join(
                     full_name.split()[1:]) if len(
                     full_name.split()) > 1 else ''
                 db.session.commit()
                 corretti += 1
+
+            # Fix log WhatsApp
+            logs_wa = MessaggioWhatsapp.query.filter_by(
+                telefono=telefono, nome='Nuova').all()
+            for log in logs_wa:
+                log.nome = nome_breve
+            if logs_wa:
+                db.session.commit()
+                corretti += len(logs_wa)
 
         return jsonify({'success': True, 'corretti': corretti})
 
