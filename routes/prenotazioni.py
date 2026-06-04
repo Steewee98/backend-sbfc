@@ -2,8 +2,10 @@ from flask import Blueprint, request, jsonify
 from models import db, Prenotazione
 from utils.whatsapp import invia_whatsapp
 from datetime import datetime, timedelta
+from dateutil import parser as dateparser
 import os
 import secrets
+import traceback
 
 prenotazioni_bp = Blueprint('prenotazioni', __name__)
 
@@ -47,8 +49,10 @@ def calendly_webhook():
         if not start_time:
             return jsonify({'error': 'No start_time'}), 400
 
-        data_appuntamento = datetime.fromisoformat(
-            start_time.replace('Z', '+00:00'))
+        try:
+            data_appuntamento = dateparser.parse(start_time)
+        except Exception:
+            return jsonify({'error': 'Invalid start_time'}), 400
 
         event_uri = scheduled.get('uri', '') or \
                     payload.get('event', {}).get('uri', '')

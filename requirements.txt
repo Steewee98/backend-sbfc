@@ -14,3 +14,4 @@ python-pptx
 weasyprint
 gspread
 google-auth
+python-dateutil
