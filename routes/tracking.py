@@ -8,18 +8,50 @@ import os
 tracking_bp = Blueprint('tracking', __name__)
 
 
+BOT_KEYWORDS = [
+    'bot', 'crawl', 'spider', 'slurp', 'facebook', 'facebot',
+    'twitter', 'linkedin', 'whatsapp', 'telegram', 'preview',
+    'fetch', 'headless', 'phantom', 'selenium', 'puppeteer',
+    'googlebot', 'bingbot', 'yandex', 'baidu', 'semrush',
+    'ahrefs', 'mj12bot', 'dotbot', 'petalbot', 'uptimerobot',
+    'pingdom', 'monitoring', 'health', 'curl', 'wget', 'python-requests'
+]
+
+
 @tracking_bp.route('/api/track', methods=['POST'])
 def track_visita():
     data = request.json
     pagina = data.get('pagina', '/')
     referrer = data.get('referrer', '')
 
+    ua = request.headers.get('User-Agent', '')
+
+    # Filtra bot
+    ua_lower = ua.lower()
+    if any(bot in ua_lower for bot in BOT_KEYWORDS):
+        return jsonify({'success': True, 'skipped': 'bot'}), 200
+
+    # Filtra user-agent vuoti o troppo corti (bot primitivi)
+    if len(ua) < 20:
+        return jsonify({'success': True, 'skipped': 'short_ua'}), 200
+
     # Hash dell'IP per privacy
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
     ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
 
-    # Rileva dispositivo da user agent
-    ua = request.headers.get('User-Agent', '')
+    # Deduplica: stessa pagina + stesso IP entro 30 minuti
+    trenta_min_fa = datetime.utcnow() - timedelta(minutes=30)
+    duplicata = Visita.query.filter(
+        Visita.ip_hash == ip_hash,
+        Visita.pagina == pagina,
+        Visita.created_at >= trenta_min_fa
+    ).first()
+    if duplicata:
+        return jsonify({'success': True, 'skipped': 'duplicate'}), 200
+
+    # Rileva dispositivo
     if 'Mobile' in ua or 'Android' in ua:
         dispositivo = 'mobile'
     elif 'Tablet' in ua or 'iPad' in ua:
