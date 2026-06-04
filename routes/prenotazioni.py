@@ -132,7 +132,7 @@ def conferma_appuntamento(token):
     # Notifica Simone
     try:
         invia_whatsapp(
-            os.environ.get('SIMONE_PHONE', '+393338370585'),
+            os.environ.get('SIMONE_PHONE', '+393382636677'),
             f"Confermata la call del {pren.data_appuntamento.strftime('%d/%m/%Y %H:%M')} con {pren.nome}",
             nome='Sistema', tipo='conferma_notifica')
     except Exception:
