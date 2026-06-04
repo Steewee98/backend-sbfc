@@ -1,71 +1,106 @@
+import requests as http_requests
 from flask import Blueprint, request, jsonify
-from models import db, Prenotazione
+from models import db, Prenotazione, Contatto
 from utils.whatsapp import invia_whatsapp
 from datetime import datetime, timedelta
 from dateutil import parser as dateparser
 import os
 import secrets
-import traceback
 
 prenotazioni_bp = Blueprint('prenotazioni', __name__)
 
 BACKEND_URL = os.environ.get(
     'BACKEND_URL', 'https://web-production-f3794.up.railway.app')
+CALENDLY_TOKEN = os.environ.get('CALENDLY_TOKEN', '')
+CALENDLY_USER = os.environ.get(
+    'CALENDLY_USER',
+    'https://api.calendly.com/users/85e30fc0-9d3a-4d9e-b6a5-55e378b4a696')
 
 
-# --- Webhook Calendly ---
-@prenotazioni_bp.route('/api/webhooks/calendly', methods=['POST'])
-def calendly_webhook():
-    """Riceve eventi da Calendly (invitee.created / invitee.canceled)."""
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'No data'}), 400
+# --- Sync Calendly (polling) ---
+def _sync_calendly():
+    """Legge eventi Calendly via API e importa nuove prenotazioni."""
+    token = CALENDLY_TOKEN
+    if not token:
+        return 0
 
-    event_type = data.get('event')
-    payload = data.get('payload', {})
+    headers = {'Authorization': f'Bearer {token}'}
 
-    if event_type == 'invitee.created':
-        invitee = payload
-        nome = invitee.get('name', 'Contatto')
-        email = invitee.get('email', '')
+    # Prendi eventi futuri attivi
+    now = datetime.utcnow()
+    params = {
+        'user': CALENDLY_USER,
+        'min_start_time': (now - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'status': 'active',
+        'count': 50
+    }
+    res = http_requests.get(
+        'https://api.calendly.com/scheduled_events',
+        headers=headers, params=params, timeout=15)
 
-        # Calendly mette il telefono in questions_and_answers o text_reminder_number
+    if res.status_code != 200:
+        print(f"[CALENDLY] API error: {res.status_code}")
+        return 0
+
+    events = res.json().get('collection', [])
+    nuovi = 0
+
+    for event in events:
+        event_uri = event.get('uri', '')
+
+        # Già importato?
+        if Prenotazione.query.filter_by(
+                calendly_event_id=event_uri).first():
+            continue
+
+        start_time = event.get('start_time', '')
+        if not start_time:
+            continue
+
+        data_appuntamento = dateparser.parse(start_time)
+
+        # Prendi invitee per nome, email, telefono
+        inv_res = http_requests.get(
+            f"{event_uri}/invitees",
+            headers=headers, timeout=15)
+
+        nome = 'Contatto'
+        email = ''
         telefono = ''
-        for qa in invitee.get('questions_and_answers', []):
-            if any(k in qa.get('question', '').lower()
-                   for k in ['phone', 'telefono', 'numero', 'cellulare']):
-                telefono = qa.get('answer', '')
-                break
-        if not telefono:
-            telefono = invitee.get('text_reminder_number', '')
 
-        # Data appuntamento
-        scheduled = payload.get('scheduled_event', {})
-        start_time = scheduled.get('start_time', '')
-        if not start_time:
-            # Formato alternativo
-            start_time = payload.get('event', {}).get('start_time', '')
+        if inv_res.status_code == 200:
+            invitees = inv_res.json().get('collection', [])
+            if invitees:
+                inv = invitees[0]
+                nome = inv.get('name', 'Contatto').strip()
+                email = inv.get('email', '')
 
-        if not start_time:
-            return jsonify({'error': 'No start_time'}), 400
+                # Telefono da questions_and_answers
+                for qa in inv.get('questions_and_answers', []):
+                    q = qa.get('question', '').lower()
+                    if any(k in q for k in ['phone', 'telefono',
+                                            'numero', 'cellulare']):
+                        telefono = qa.get('answer', '')
+                        break
+                if not telefono:
+                    telefono = inv.get('text_reminder_number') or ''
 
-        try:
-            data_appuntamento = dateparser.parse(start_time)
-        except Exception:
-            return jsonify({'error': 'Invalid start_time'}), 400
+        # Se non abbiamo il telefono, cercalo nei contatti
+        if not telefono and email:
+            contatto = Contatto.query.filter_by(email=email).first()
+            if contatto and contatto.telefono:
+                telefono = contatto.telefono
 
-        event_uri = scheduled.get('uri', '') or \
-                    payload.get('event', {}).get('uri', '')
+        if not telefono and nome:
+            nome_parts = nome.split()
+            if nome_parts:
+                contatto = Contatto.query.filter(
+                    Contatto.nome == nome_parts[0]
+                ).first()
+                if contatto and contatto.telefono:
+                    telefono = contatto.telefono
 
-        # Controlla duplicati
-        if event_uri:
-            esistente = Prenotazione.query.filter_by(
-                calendly_event_id=event_uri).first()
-            if esistente:
-                return jsonify({'ok': True, 'msg': 'already exists'})
-
-        token = secrets.token_urlsafe(32)
-
+        tok = secrets.token_urlsafe(32)
         pren = Prenotazione(
             nome=nome,
             email=email,
@@ -73,20 +108,23 @@ def calendly_webhook():
             data_appuntamento=data_appuntamento,
             calendly_event_id=event_uri,
             stato='pending',
-            token_conferma=token
+            token_conferma=tok
         )
         db.session.add(pren)
         db.session.commit()
+        nuovi += 1
 
-        # WhatsApp immediato di conferma prenotazione
+        # WhatsApp immediato di conferma
         if telefono:
             try:
                 nome_breve = nome.split()[0]
+                # Converti a ora italiana (UTC+2)
+                ora_ita = data_appuntamento + timedelta(hours=2)
                 msg = f"""Buongiorno {nome_breve},
 
-la sua chiamata con Simone Braghetta è confermata per il {data_appuntamento.strftime('%d/%m/%Y alle %H:%M')}.
+la sua chiamata con Simone Braghetta e' confermata per il {ora_ita.strftime('%d/%m/%Y alle %H:%M')}.
 
-Le invierò un promemoria prima dell'appuntamento.
+Le invieremo un promemoria prima dell'appuntamento.
 
 A presto,
 Simone Braghetta
@@ -94,22 +132,11 @@ SB Food Consulting"""
                 invia_whatsapp(telefono, msg,
                     nome=nome_breve, tipo='conferma_prenotazione')
             except Exception as e:
-                print(f"WA conferma prenotazione error: {e}")
+                print(f"[CALENDLY] WA error: {e}")
 
-        return jsonify({'ok': True, 'id': pren.id}), 201
+        print(f"[CALENDLY] Nuova prenotazione: {nome} — {data_appuntamento}")
 
-    elif event_type == 'invitee.canceled':
-        event_uri = payload.get('scheduled_event', {}).get('uri', '')
-        if event_uri:
-            pren = Prenotazione.query.filter_by(
-                calendly_event_id=event_uri).first()
-            if pren:
-                pren.stato = 'cancellato'
-                db.session.commit()
-
-        return jsonify({'ok': True, 'msg': 'canceled'})
-
-    return jsonify({'ok': True})
+    return nuovi
 
 
 # --- Conferma appuntamento via link ---
@@ -120,9 +147,10 @@ def conferma_appuntamento(token):
         return '<h2>Link non valido.</h2>', 404
 
     if pren.confermato:
+        ora_ita = pren.data_appuntamento + timedelta(hours=2)
         return f"""<html><body style="font-family:Arial;text-align:center;padding:60px">
-        <h2>Già confermato!</h2>
-        <p>La chiamata con Simone del {pren.data_appuntamento.strftime('%d/%m/%Y alle %H:%M')} è già stata confermata.</p>
+        <h2>Gia' confermato!</h2>
+        <p>La chiamata con Simone del {ora_ita.strftime('%d/%m/%Y alle %H:%M')} e' gia' stata confermata.</p>
         </body></html>"""
 
     pren.confermato = True
@@ -131,19 +159,21 @@ def conferma_appuntamento(token):
 
     # Notifica Simone
     try:
+        ora_ita = pren.data_appuntamento + timedelta(hours=2)
         invia_whatsapp(
             os.environ.get('SIMONE_PHONE', '+393382636677'),
-            f"Confermata la call del {pren.data_appuntamento.strftime('%d/%m/%Y %H:%M')} con {pren.nome}",
+            f"Confermata la call del {ora_ita.strftime('%d/%m/%Y %H:%M')} con {pren.nome}",
             nome='Sistema', tipo='conferma_notifica')
     except Exception:
         pass
 
+    ora_ita = pren.data_appuntamento + timedelta(hours=2)
     return f"""<html><body style="font-family:Arial;text-align:center;padding:60px;background:#f5f2ee">
     <div style="max-width:500px;margin:auto;background:#fff;padding:40px;border-radius:8px">
     <h2 style="color:#37393f">Confermato!</h2>
     <p style="color:#5a5a5a;font-size:16px">La chiamata con Simone Braghetta del
-    <strong>{pren.data_appuntamento.strftime('%d/%m/%Y alle %H:%M')}</strong>
-    è confermata.</p>
+    <strong>{ora_ita.strftime('%d/%m/%Y alle %H:%M')}</strong>
+    e' confermata.</p>
     <p style="color:#c4622d;font-weight:bold">A presto!</p>
     </div></body></html>"""
 
@@ -151,6 +181,14 @@ def conferma_appuntamento(token):
 # --- Logica reminder (chiamata dal background thread) ---
 def _check_reminders():
     """Controlla prenotazioni e invia reminder se necessario."""
+    # Prima sincronizza da Calendly
+    try:
+        nuovi = _sync_calendly()
+        if nuovi > 0:
+            print(f"[CALENDLY] {nuovi} nuove prenotazioni importate")
+    except Exception as e:
+        print(f"[CALENDLY] Sync error: {e}")
+
     now = datetime.utcnow()
     prenotazioni = Prenotazione.query.filter(
         Prenotazione.stato.in_(['pending', 'reminder_2d']),
@@ -160,7 +198,8 @@ def _check_reminders():
     for pren in prenotazioni:
         delta = pren.data_appuntamento - now
         nome_breve = pren.nome.split()[0] if pren.nome else 'Contatto'
-        data_str = pren.data_appuntamento.strftime('%d/%m/%Y alle %H:%M')
+        ora_ita = pren.data_appuntamento + timedelta(hours=2)
+        data_str = ora_ita.strftime('%d/%m/%Y alle %H:%M')
         link_conferma = f"{BACKEND_URL}/api/conferma/{pren.token_conferma}"
 
         # Reminder 2 giorni prima
@@ -174,7 +213,7 @@ le ricordo la chiamata con Simone Braghetta prevista per il {data_str}.
 Per confermare la sua partecipazione, clicchi qui:
 {link_conferma}
 
-Se non può più partecipare, ci faccia sapere rispondendo a questo messaggio.
+Se non puo' piu' partecipare, ci faccia sapere rispondendo a questo messaggio.
 
 Grazie,
 SB Food Consulting"""
@@ -201,7 +240,7 @@ SB Food Consulting"""
                 else:
                     msg = f"""Buongiorno {nome_breve},
 
-la chiamata con Simone Braghetta è tra 2 ore ({data_str}).
+la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).
 
 Non abbiamo ancora ricevuto la sua conferma. Confermi cliccando qui:
 {link_conferma}
@@ -232,7 +271,7 @@ SB Food Consulting"""
         db.session.commit()
 
 
-# --- Endpoint admin per vedere le prenotazioni ---
+# --- Endpoint admin ---
 @prenotazioni_bp.route('/api/prenotazioni', methods=['GET'])
 def lista_prenotazioni():
     token = request.headers.get('X-Admin-Token')
@@ -244,7 +283,6 @@ def lista_prenotazioni():
     return jsonify([p.to_dict() for p in prenotazioni])
 
 
-# --- Endpoint per aggiungere prenotazione manuale ---
 @prenotazioni_bp.route('/api/prenotazioni', methods=['POST'])
 def crea_prenotazione():
     token = request.headers.get('X-Admin-Token')
@@ -260,7 +298,7 @@ def crea_prenotazione():
         nome=data['nome'],
         email=data.get('email', ''),
         telefono=data.get('telefono', ''),
-        data_appuntamento=datetime.fromisoformat(data['data_appuntamento']),
+        data_appuntamento=dateparser.parse(data['data_appuntamento']),
         stato='pending',
         token_conferma=tok
     )
