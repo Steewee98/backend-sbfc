@@ -306,3 +306,35 @@ def crea_prenotazione():
     db.session.commit()
 
     return jsonify(pren.to_dict()), 201
+
+
+@prenotazioni_bp.route('/api/prenotazioni/<int:pren_id>', methods=['PATCH'])
+def aggiorna_prenotazione(pren_id):
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    pren = Prenotazione.query.get(pren_id)
+    if not pren:
+        return jsonify({'error': 'Prenotazione non trovata'}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Dati mancanti'}), 400
+
+    if 'confermato' in data:
+        pren.confermato = data['confermato']
+        if data['confermato']:
+            pren.stato = 'confermato'
+
+    if 'stato' in data:
+        pren.stato = data['stato']
+
+    if 'telefono' in data:
+        pren.telefono = data['telefono']
+
+    if 'nome' in data:
+        pren.nome = data['nome']
+
+    db.session.commit()
+    return jsonify(pren.to_dict())
