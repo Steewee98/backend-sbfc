@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from models import db, Visita
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -7,39 +7,39 @@ import os
 
 tracking_bp = Blueprint('tracking', __name__)
 
+# 1x1 transparent GIF for pixel tracking
+PIXEL_GIF = (b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00'
+             b'\x80\x00\x00\xff\xff\xff\x00\x00\x00'
+             b'\x21\xf9\x04\x00\x00\x00\x00\x00'
+             b'\x2c\x00\x00\x00\x00\x01\x00\x01\x00'
+             b'\x00\x02\x02\x44\x01\x00\x3b')
 
 BOT_KEYWORDS = [
-    'bot', 'crawl', 'spider', 'slurp', 'facebook', 'facebot',
+    'bot', 'crawl', 'spider', 'slurp', 'facebot',
+    'facebookexternalhit',
     'twitter', 'linkedin', 'whatsapp', 'telegram', 'preview',
-    'fetch', 'headless', 'phantom', 'selenium', 'puppeteer',
+    'headless', 'phantom', 'selenium', 'puppeteer',
     'googlebot', 'bingbot', 'yandex', 'baidu', 'semrush',
     'ahrefs', 'mj12bot', 'dotbot', 'petalbot', 'uptimerobot',
     'pingdom', 'monitoring', 'health', 'curl', 'wget', 'python-requests'
 ]
 
 
-@tracking_bp.route('/api/track', methods=['POST'])
-def track_visita():
-    data = request.json
-    pagina = data.get('pagina', '/')
-    referrer = data.get('referrer', '')
-
-    ua = request.headers.get('User-Agent', '')
-
+def _track_visit(pagina, referrer, ua, ip):
+    """Core tracking logic shared by POST and pixel endpoints."""
     # Filtra bot
     ua_lower = ua.lower()
-    if any(bot in ua_lower for bot in BOT_KEYWORDS):
-        return jsonify({'success': True, 'skipped': 'bot'}), 200
+    if any(kw in ua_lower for kw in BOT_KEYWORDS):
+        return 'bot'
 
-    # Filtra user-agent vuoti o troppo corti (bot primitivi)
+    # Filtra user-agent vuoti o troppo corti
     if len(ua) < 20:
-        return jsonify({'success': True, 'skipped': 'short_ua'}), 200
+        return 'short_ua'
 
     # Hash dell'IP per privacy
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     if ip and ',' in ip:
         ip = ip.split(',')[0].strip()
-    ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
+    ip_hash = hashlib.sha256((ip or '').encode()).hexdigest()[:16]
 
     # Deduplica: stessa pagina + stesso IP entro 30 minuti
     trenta_min_fa = datetime.utcnow() - timedelta(minutes=30)
@@ -49,7 +49,7 @@ def track_visita():
         Visita.created_at >= trenta_min_fa
     ).first()
     if duplicata:
-        return jsonify({'success': True, 'skipped': 'duplicate'}), 200
+        return 'duplicate'
 
     # Rileva dispositivo
     if 'Mobile' in ua or 'Android' in ua:
@@ -63,13 +63,43 @@ def track_visita():
         pagina=pagina,
         ip_hash=ip_hash,
         user_agent=ua[:500],
-        referrer=referrer[:500],
+        referrer=(referrer or '')[:500],
         dispositivo=dispositivo
     )
     db.session.add(visita)
     db.session.commit()
+    return 'ok'
 
+
+@tracking_bp.route('/api/track', methods=['POST'])
+def track_visita():
+    # force=True: parse JSON even without Content-Type header
+    # (sendBeacon may send as text/plain)
+    data = request.get_json(force=True, silent=True) or {}
+    pagina = data.get('pagina', '/')
+    referrer = data.get('referrer', '')
+
+    ua = request.headers.get('User-Agent', '')
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    result = _track_visit(pagina, referrer, ua, ip)
+    if result != 'ok':
+        return jsonify({'success': True, 'skipped': result}), 200
     return jsonify({'success': True}), 200
+
+
+@tracking_bp.route('/api/track/pixel', methods=['GET'])
+def track_pixel():
+    """GET-based pixel tracking fallback (for <img> tags / noscript)."""
+    pagina = request.args.get('p', '/')
+    referrer = request.args.get('r', '')
+    ua = request.headers.get('User-Agent', '')
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    _track_visit(pagina, referrer, ua, ip)
+
+    return Response(PIXEL_GIF, mimetype='image/gif',
+                    headers={'Cache-Control': 'no-store, no-cache'})
 
 
 @tracking_bp.route('/api/analytics', methods=['GET'])
