@@ -123,6 +123,38 @@ class MessaggioWhatsapp(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class Prenotazione(db.Model):
+    __tablename__ = 'prenotazioni'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(200))
+    telefono = db.Column(db.String(50))
+    data_appuntamento = db.Column(db.DateTime, nullable=False)
+    calendly_event_id = db.Column(db.String(300), unique=True)
+    # Stato reminder: pending -> reminder_2d -> reminder_2h -> confermato / non_confermato
+    stato = db.Column(db.String(30), default='pending')
+    reminder_2d_inviato = db.Column(db.Boolean, default=False)
+    reminder_2h_inviato = db.Column(db.Boolean, default=False)
+    confermato = db.Column(db.Boolean, default=False)
+    token_conferma = db.Column(db.String(64), unique=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nome': self.nome,
+            'email': self.email,
+            'telefono': self.telefono,
+            'data_appuntamento': self.data_appuntamento.isoformat(),
+            'stato': self.stato,
+            'reminder_2d_inviato': self.reminder_2d_inviato,
+            'reminder_2h_inviato': self.reminder_2h_inviato,
+            'confermato': self.confermato,
+            'created_at': self.created_at.isoformat(),
+        }
+
+
 class Visita(db.Model):
     __tablename__ = 'visite'
 

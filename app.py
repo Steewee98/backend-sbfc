@@ -64,6 +64,7 @@ from routes.brandizzatore import brandizzatore_bp
 from routes.checklist import checklist_bp
 from routes.whatsapp_logs import whatsapp_logs_bp
 from routes.google_leads import google_leads_bp
+from routes.prenotazioni import prenotazioni_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -75,6 +76,7 @@ app.register_blueprint(brandizzatore_bp)
 app.register_blueprint(checklist_bp)
 app.register_blueprint(whatsapp_logs_bp)
 app.register_blueprint(google_leads_bp)
+app.register_blueprint(prenotazioni_bp)
 
 
 # Ensure tables exist
@@ -145,11 +147,31 @@ def _background_sync():
             print(f"[AUTO-SYNC] Errore: {e}")
         time.sleep(SYNC_INTERVAL)
 
+# --- Background check reminder prenotazioni ogni 5 min ---
+REMINDER_INTERVAL = int(os.environ.get('REMINDER_INTERVAL', 300))
+
+def _background_reminders():
+    """Controlla prenotazioni e invia reminder WA."""
+    time.sleep(45)
+    while True:
+        try:
+            with app.app_context():
+                from routes.prenotazioni import _check_reminders
+                _check_reminders()
+        except Exception as e:
+            print(f"[REMINDER] Errore: {e}")
+        time.sleep(REMINDER_INTERVAL)
+
+
 # Avvia solo in produzione (gunicorn) o se esplicito
 if not app.debug or os.environ.get('FORCE_SYNC'):
     _sync_thread = threading.Thread(target=_background_sync, daemon=True)
     _sync_thread.start()
     print(f"[AUTO-SYNC] Avviato — controlla ogni {SYNC_INTERVAL}s")
+
+    _reminder_thread = threading.Thread(target=_background_reminders, daemon=True)
+    _reminder_thread.start()
+    print(f"[REMINDER] Avviato — controlla ogni {REMINDER_INTERVAL}s")
 
 
 if __name__ == '__main__':
