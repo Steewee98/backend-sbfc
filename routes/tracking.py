@@ -17,11 +17,11 @@ PIXEL_GIF = (b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00'
 BOT_KEYWORDS = [
     'bot', 'crawl', 'spider', 'slurp', 'facebot',
     'facebookexternalhit',
-    'twitter', 'linkedin', 'whatsapp', 'telegram', 'preview',
+    'twitterbot', 'linkedinbot', 'telegrambot',
     'headless', 'phantom', 'selenium', 'puppeteer',
     'googlebot', 'bingbot', 'yandex', 'baidu', 'semrush',
     'ahrefs', 'mj12bot', 'dotbot', 'petalbot', 'uptimerobot',
-    'pingdom', 'monitoring', 'health', 'curl', 'wget', 'python-requests'
+    'pingdom', 'monitoring', 'curl', 'wget', 'python-requests'
 ]
 
 

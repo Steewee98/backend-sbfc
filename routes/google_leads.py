@@ -228,6 +228,93 @@ def fix_lead_names():
         return jsonify({'error': str(e)}), 500
 
 
+@google_leads_bp.route('/api/retry-failed-wa', methods=['POST'])
+def retry_failed_wa():
+    """Rimanda WhatsApp ai contatti Meta Ads con messaggio fallito."""
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Trova messaggi meta_leads in errore
+    falliti = MessaggioWhatsapp.query.filter(
+        MessaggioWhatsapp.tipo == 'meta_leads',
+        MessaggioWhatsapp.stato.in_(['errore', 'numero_invalido'])
+    ).all()
+
+    # Trova contatti Meta Ads senza nessun log WhatsApp
+    contatti_meta = Contatto.query.filter_by(
+        tipo_locale='Lead Meta Ads'
+    ).filter(Contatto.telefono != '').all()
+
+    telefoni_con_log = {m.telefono for m in
+        MessaggioWhatsapp.query.filter_by(tipo='meta_leads').all()}
+
+    reinviati = 0
+    errori = 0
+
+    # Retry messaggi falliti
+    numeri_fatti = set()
+    for msg in falliti:
+        if msg.telefono in numeri_fatti:
+            continue
+        numeri_fatti.add(msg.telefono)
+        nome = msg.nome or 'Contatto'
+        testo = f"""Buongiorno {nome},
+
+grazie per il suo interesse in SB Food Consulting.
+
+Sono Simone Braghetta. Sarò felice di parlare del suo locale.
+
+Prenoti una chiamata gratuita:
+https://calendly.com/sbfoodconsulting-info/30min
+
+A presto,
+Simone Braghetta"""
+        try:
+            if invia_whatsapp(msg.telefono, testo,
+                              nome=nome, tipo='meta_leads'):
+                reinviati += 1
+            else:
+                errori += 1
+        except Exception:
+            errori += 1
+
+    # Contatti senza alcun log WA
+    for c in contatti_meta:
+        if c.telefono in numeri_fatti:
+            continue
+        if c.telefono in telefoni_con_log:
+            continue
+        numeri_fatti.add(c.telefono)
+        nome = c.nome or 'Contatto'
+        testo = f"""Buongiorno {nome},
+
+grazie per il suo interesse in SB Food Consulting.
+
+Sono Simone Braghetta. Sarò felice di parlare del suo locale.
+
+Prenoti una chiamata gratuita:
+https://calendly.com/sbfoodconsulting-info/30min
+
+A presto,
+Simone Braghetta"""
+        try:
+            if invia_whatsapp(c.telefono, testo,
+                              nome=nome, tipo='meta_leads'):
+                reinviati += 1
+            else:
+                errori += 1
+        except Exception:
+            errori += 1
+
+    return jsonify({
+        'success': True,
+        'reinviati': reinviati,
+        'errori': errori,
+        'totale_tentati': len(numeri_fatti)
+    })
+
+
 @google_leads_bp.route('/api/auto-sync-leads', methods=['POST'])
 def auto_sync_leads():
     """Endpoint per cron automatico — usa token dedicato."""
