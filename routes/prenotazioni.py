@@ -191,7 +191,7 @@ def _check_reminders():
 
     now = datetime.utcnow()
     prenotazioni = Prenotazione.query.filter(
-        Prenotazione.stato.in_(['pending', 'reminder_2d']),
+        Prenotazione.stato.in_(['pending', 'reminder_2d', 'confermato']),
         Prenotazione.data_appuntamento > now
     ).all()
 
@@ -335,6 +335,12 @@ def aggiorna_prenotazione(pren_id):
 
     if 'nome' in data:
         pren.nome = data['nome']
+
+    if 'reminder_2d_inviato' in data:
+        pren.reminder_2d_inviato = data['reminder_2d_inviato']
+
+    if 'reminder_2h_inviato' in data:
+        pren.reminder_2h_inviato = data['reminder_2h_inviato']
 
     db.session.commit()
     return jsonify(pren.to_dict())
