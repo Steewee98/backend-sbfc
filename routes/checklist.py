@@ -88,10 +88,11 @@ def salva_checklist():
             oggetto = "Il tuo locale ha basi solide — ecco il prossimo passo"
             corpo = email_checklist_buono(nome, punteggio, data)
 
-        if invia_email(email, nome, oggetto, corpo):
-            risultato.email_inviata = True
-            risultato.tipo_email = tipo
-            db.session.commit()
+        if email:
+            if invia_email(email, nome, oggetto, corpo):
+                risultato.email_inviata = True
+                risultato.tipo_email = tipo
+                db.session.commit()
 
     except Exception as e:
         print(f"Email checklist non inviata: {e}")
