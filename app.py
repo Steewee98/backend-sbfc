@@ -102,7 +102,7 @@ def ensure_db():
                         ))
                         conn.commit()
                     except Exception:
-                        pass  # colonna già esistente
+                        conn.rollback()  # reset transazione per PostgreSQL
             _db_initialized = True
             _db_error = None
             print("Database tables created successfully")
