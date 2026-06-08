@@ -91,13 +91,14 @@ def ensure_db():
             db.create_all()
             # Aggiungi colonne mancanti a tabelle esistenti
             with db.engine.connect() as conn:
-                for col, ddl in [
-                    ('email_inviata', 'BOOLEAN DEFAULT FALSE'),
-                    ('tipo_email', 'VARCHAR(20)'),
+                for table, col, ddl in [
+                    ('risultati_checklist', 'email_inviata', 'BOOLEAN DEFAULT FALSE'),
+                    ('risultati_checklist', 'tipo_email', 'VARCHAR(20)'),
+                    ('prenotazioni', 'link_chiamata', 'VARCHAR(500)'),
                 ]:
                     try:
                         conn.execute(db.text(
-                            f'ALTER TABLE risultati_checklist ADD COLUMN {col} {ddl}'
+                            f'ALTER TABLE {table} ADD COLUMN {col} {ddl}'
                         ))
                         conn.commit()
                     except Exception:

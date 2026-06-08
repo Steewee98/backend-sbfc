@@ -138,6 +138,7 @@ class Prenotazione(db.Model):
     reminder_2h_inviato = db.Column(db.Boolean, default=False)
     confermato = db.Column(db.Boolean, default=False)
     token_conferma = db.Column(db.String(64), unique=True)
+    link_chiamata = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -151,6 +152,7 @@ class Prenotazione(db.Model):
             'reminder_2d_inviato': self.reminder_2d_inviato,
             'reminder_2h_inviato': self.reminder_2h_inviato,
             'confermato': self.confermato,
+            'link_chiamata': self.link_chiamata,
             'created_at': self.created_at.isoformat(),
         }
 

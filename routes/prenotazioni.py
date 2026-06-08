@@ -59,6 +59,14 @@ def _sync_calendly():
 
         data_appuntamento = dateparser.parse(start_time)
 
+        # Estrai link chiamata dalla location
+        location = event.get('location', {})
+        link_chiamata = (location.get('join_url')
+                         or location.get('location', ''))
+        # Tieni solo se sembra un URL
+        if link_chiamata and not link_chiamata.startswith('http'):
+            link_chiamata = ''
+
         # Prendi invitee per nome, email, telefono
         inv_res = http_requests.get(
             f"{event_uri}/invitees",
@@ -117,6 +125,7 @@ def _sync_calendly():
             telefono=telefono,
             data_appuntamento=data_appuntamento,
             calendly_event_id=event_uri,
+            link_chiamata=link_chiamata,
             stato='pending',
             token_conferma=tok
         )
@@ -130,9 +139,10 @@ def _sync_calendly():
                 nome_breve = nome.split()[0]
                 # Converti a ora italiana (UTC+2)
                 ora_ita = data_appuntamento + timedelta(hours=2)
+                link_info = f"\n\nLink chiamata:\n{link_chiamata}" if link_chiamata else ""
                 msg = f"""Buongiorno {nome_breve},
 
-la sua chiamata con Simone Braghetta e' confermata per il {ora_ita.strftime('%d/%m/%Y alle %H:%M')}.
+la sua chiamata con Simone Braghetta e' confermata per il {ora_ita.strftime('%d/%m/%Y alle %H:%M')}.{link_info}
 
 Le invieremo un promemoria prima dell'appuntamento.
 
@@ -170,9 +180,12 @@ def conferma_appuntamento(token):
     # Notifica Simone
     try:
         ora_ita = pren.data_appuntamento + timedelta(hours=2)
+        msg_simone = f"Confermata la call del {ora_ita.strftime('%d/%m/%Y %H:%M')} con {pren.nome}"
+        if pren.link_chiamata:
+            msg_simone += f"\n\nLink: {pren.link_chiamata}"
         invia_whatsapp(
             os.environ.get('SIMONE_PHONE', '+393382636677'),
-            f"Confermata la call del {ora_ita.strftime('%d/%m/%Y %H:%M')} con {pren.nome}",
+            msg_simone,
             nome='Sistema', tipo='conferma_notifica')
     except Exception:
         pass
@@ -239,10 +252,11 @@ SB Food Consulting"""
         # Reminder 2 ore prima
         if not pren.reminder_2h_inviato and delta <= timedelta(hours=2):
             if pren.telefono:
+                link_info = f"\n\nLink chiamata:\n{pren.link_chiamata}" if pren.link_chiamata else ""
                 if pren.confermato:
                     msg = f"""Buongiorno {nome_breve},
 
-tra poco la chiamata con Simone Braghetta ({data_str}).
+tra poco la chiamata con Simone Braghetta ({data_str}).{link_info}
 
 Tutto confermato, a tra poco!
 
@@ -250,7 +264,7 @@ SB Food Consulting"""
                 else:
                     msg = f"""Buongiorno {nome_breve},
 
-la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).
+la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).{link_info}
 
 Non abbiamo ancora ricevuto la sua conferma. Confermi cliccando qui:
 {link_conferma}
@@ -351,6 +365,9 @@ def aggiorna_prenotazione(pren_id):
 
     if 'reminder_2h_inviato' in data:
         pren.reminder_2h_inviato = data['reminder_2h_inviato']
+
+    if 'link_chiamata' in data:
+        pren.link_chiamata = data['link_chiamata']
 
     db.session.commit()
     return jsonify(pren.to_dict())
