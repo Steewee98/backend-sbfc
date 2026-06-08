@@ -157,6 +157,29 @@ class Prenotazione(db.Model):
         }
 
 
+class NoteChiamata(db.Model):
+    __tablename__ = 'note_chiamate'
+
+    id = db.Column(db.Integer, primary_key=True)
+    contatto_id = db.Column(db.Integer, db.ForeignKey('contatti.id'), nullable=False)
+    esito = db.Column(db.String(30), nullable=False)  # risposto, non_risponde, richiamare, non_interessato, appuntamento
+    note = db.Column(db.Text)
+    operatore = db.Column(db.String(100), default='Simone')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    contatto = db.relationship('Contatto', backref=db.backref('note_chiamate', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'contatto_id': self.contatto_id,
+            'esito': self.esito,
+            'note': self.note,
+            'operatore': self.operatore,
+            'created_at': self.created_at.isoformat(),
+        }
+
+
 class Visita(db.Model):
     __tablename__ = 'visite'
 
