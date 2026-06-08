@@ -93,12 +93,22 @@ def _sync_calendly():
 
         if not telefono and nome:
             nome_parts = nome.split()
-            if nome_parts:
+            # Cerca per ogni parte del nome (match esatto o contenuto)
+            for parte in nome_parts:
+                if len(parte) < 3:
+                    continue
+                pat = f'%{parte.lower()}%'
                 contatto = Contatto.query.filter(
-                    Contatto.nome == nome_parts[0]
+                    db.or_(
+                        db.func.lower(Contatto.nome).like(pat),
+                        db.func.lower(Contatto.cognome).like(pat)
+                    ),
+                    Contatto.telefono != '',
+                    Contatto.telefono.isnot(None)
                 ).first()
-                if contatto and contatto.telefono:
+                if contatto:
                     telefono = contatto.telefono
+                    break
 
         tok = secrets.token_urlsafe(32)
         pren = Prenotazione(
