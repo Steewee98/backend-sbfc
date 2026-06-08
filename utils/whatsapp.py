@@ -1,10 +1,14 @@
 import requests
 import os
+import threading
 from datetime import datetime, timedelta
 from models import db, MessaggioWhatsapp
 
 ULTRAMSG_INSTANCE = os.environ.get('ULTRAMSG_INSTANCE', 'instance179124')
 ULTRAMSG_TOKEN = os.environ.get('ULTRAMSG_TOKEN', 'zct26h140v589icp')
+
+# Lock per evitare invii doppi da thread concorrenti
+_send_lock = threading.Lock()
 
 
 def normalizza_telefono(telefono):
@@ -34,69 +38,70 @@ def normalizza_telefono(telefono):
 
 
 def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
-    try:
-        numero, errore_num = normalizza_telefono(telefono)
+    with _send_lock:
+        try:
+            numero, errore_num = normalizza_telefono(telefono)
 
-        if errore_num is None:
-            # Deduplicazione: evita doppi invii allo stesso numero/tipo in 5 min
-            cinque_min_fa = datetime.utcnow() - timedelta(minutes=5)
-            duplicato = MessaggioWhatsapp.query.filter(
-                MessaggioWhatsapp.telefono == numero,
-                MessaggioWhatsapp.tipo == tipo,
-                MessaggioWhatsapp.stato == 'inviato',
-                MessaggioWhatsapp.created_at >= cinque_min_fa
-            ).first()
-            if duplicato:
-                print(f"[WA] Duplicato ignorato: {numero} tipo={tipo}")
-                return True  # già inviato, tutto ok
+            if errore_num is None:
+                # Deduplicazione: evita doppi invii allo stesso numero/tipo in 5 min
+                cinque_min_fa = datetime.utcnow() - timedelta(minutes=5)
+                duplicato = MessaggioWhatsapp.query.filter(
+                    MessaggioWhatsapp.telefono == numero,
+                    MessaggioWhatsapp.tipo == tipo,
+                    MessaggioWhatsapp.stato == 'inviato',
+                    MessaggioWhatsapp.created_at >= cinque_min_fa
+                ).first()
+                if duplicato:
+                    print(f"[WA] Duplicato ignorato: {numero} tipo={tipo}")
+                    return True  # già inviato, tutto ok
 
-        if errore_num:
-            print(f"[WA] Numero non valido {numero}: {errore_num}")
-            # Salva nel log con stato errore
+            if errore_num:
+                print(f"[WA] Numero non valido {numero}: {errore_num}")
+                # Salva nel log con stato errore
+                try:
+                    log = MessaggioWhatsapp(
+                        nome=nome,
+                        telefono=numero,
+                        messaggio=messaggio,
+                        stato='numero_invalido',
+                        tipo=tipo
+                    )
+                    db.session.add(log)
+                    db.session.commit()
+                except Exception as e:
+                    print(f"Errore salvataggio log WA: {e}")
+                return False
+
+            url = f"https://api.ultramsg.com/{ULTRAMSG_INSTANCE}/messages/chat"
+
+            payload = {
+                'token': ULTRAMSG_TOKEN,
+                'to': numero,
+                'body': messaggio,
+                'priority': 10
+            }
+
+            res = requests.post(url, data=payload, timeout=10)
+            result = res.json()
+            stato = 'inviato' if result.get('sent') == 'true' else 'errore'
+            print(f"WhatsApp {stato} a {numero}: {result}")
+
+            # Salva nel database
             try:
                 log = MessaggioWhatsapp(
                     nome=nome,
                     telefono=numero,
                     messaggio=messaggio,
-                    stato='numero_invalido',
+                    stato=stato,
                     tipo=tipo
                 )
                 db.session.add(log)
                 db.session.commit()
             except Exception as e:
                 print(f"Errore salvataggio log WA: {e}")
-            return False
 
-        url = f"https://api.ultramsg.com/{ULTRAMSG_INSTANCE}/messages/chat"
+            return stato == 'inviato'
 
-        payload = {
-            'token': ULTRAMSG_TOKEN,
-            'to': numero,
-            'body': messaggio,
-            'priority': 10
-        }
-
-        res = requests.post(url, data=payload, timeout=10)
-        result = res.json()
-        stato = 'inviato' if result.get('sent') == 'true' else 'errore'
-        print(f"WhatsApp {stato} a {numero}: {result}")
-
-        # Salva nel database
-        try:
-            log = MessaggioWhatsapp(
-                nome=nome,
-                telefono=numero,
-                messaggio=messaggio,
-                stato=stato,
-                tipo=tipo
-            )
-            db.session.add(log)
-            db.session.commit()
         except Exception as e:
-            print(f"Errore salvataggio log WA: {e}")
-
-        return stato == 'inviato'
-
-    except Exception as e:
-        print(f"Errore WhatsApp: {e}")
-        return False
+            print(f"Errore WhatsApp: {e}")
+            return False
