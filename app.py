@@ -163,15 +163,19 @@ def _background_reminders():
         time.sleep(REMINDER_INTERVAL)
 
 
-# Avvia solo in produzione (gunicorn) o se esplicito
+# Avvia solo in produzione (gunicorn) e solo una volta per processo
+# Usa un file lock per evitare che più worker avviino thread duplicati
+_bg_started = False
 if not app.debug or os.environ.get('FORCE_SYNC'):
-    _sync_thread = threading.Thread(target=_background_sync, daemon=True)
-    _sync_thread.start()
-    print(f"[AUTO-SYNC] Avviato — controlla ogni {SYNC_INTERVAL}s")
+    if not _bg_started:
+        _bg_started = True
+        _sync_thread = threading.Thread(target=_background_sync, daemon=True)
+        _sync_thread.start()
+        print(f"[AUTO-SYNC] Avviato — controlla ogni {SYNC_INTERVAL}s")
 
-    _reminder_thread = threading.Thread(target=_background_reminders, daemon=True)
-    _reminder_thread.start()
-    print(f"[REMINDER] Avviato — controlla ogni {REMINDER_INTERVAL}s")
+        _reminder_thread = threading.Thread(target=_background_reminders, daemon=True)
+        _reminder_thread.start()
+        print(f"[REMINDER] Avviato — controlla ogni {REMINDER_INTERVAL}s")
 
 
 if __name__ == '__main__':

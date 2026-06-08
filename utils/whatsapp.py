@@ -1,5 +1,6 @@
 import requests
 import os
+from datetime import datetime, timedelta
 from models import db, MessaggioWhatsapp
 
 ULTRAMSG_INSTANCE = os.environ.get('ULTRAMSG_INSTANCE', 'instance179124')
@@ -35,6 +36,19 @@ def normalizza_telefono(telefono):
 def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
     try:
         numero, errore_num = normalizza_telefono(telefono)
+
+        if errore_num is None:
+            # Deduplicazione: evita doppi invii allo stesso numero/tipo in 5 min
+            cinque_min_fa = datetime.utcnow() - timedelta(minutes=5)
+            duplicato = MessaggioWhatsapp.query.filter(
+                MessaggioWhatsapp.telefono == numero,
+                MessaggioWhatsapp.tipo == tipo,
+                MessaggioWhatsapp.stato == 'inviato',
+                MessaggioWhatsapp.created_at >= cinque_min_fa
+            ).first()
+            if duplicato:
+                print(f"[WA] Duplicato ignorato: {numero} tipo={tipo}")
+                return True  # già inviato, tutto ok
 
         if errore_num:
             print(f"[WA] Numero non valido {numero}: {errore_num}")
