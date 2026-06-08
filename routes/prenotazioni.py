@@ -369,5 +369,8 @@ def aggiorna_prenotazione(pren_id):
     if 'link_chiamata' in data:
         pren.link_chiamata = data['link_chiamata']
 
+    if 'data_appuntamento' in data:
+        pren.data_appuntamento = dateparser.parse(data['data_appuntamento'])
+
     db.session.commit()
     return jsonify(pren.to_dict())
