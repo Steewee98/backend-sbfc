@@ -53,11 +53,25 @@ def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
             numero, errore_num = normalizza_telefono(telefono)
 
             if errore_num is None:
-                # Deduplicazione in memoria (istantanea, no problemi di sessione DB)
+                # Dedup 1: cache in memoria (stesso processo)
                 _cleanup_sent_cache()
                 cache_key = (numero, tipo)
                 if cache_key in _sent_recently:
                     print(f"[WA] Duplicato ignorato (cache): {numero} tipo={tipo}")
+                    return True
+
+                # Dedup 2: check DB con sessione fresca (cross-deploy)
+                db.session.expire_all()
+                cinque_min_fa = datetime.utcnow() - timedelta(minutes=5)
+                duplicato = MessaggioWhatsapp.query.filter(
+                    MessaggioWhatsapp.telefono == numero,
+                    MessaggioWhatsapp.tipo == tipo,
+                    MessaggioWhatsapp.stato == 'inviato',
+                    MessaggioWhatsapp.created_at >= cinque_min_fa
+                ).first()
+                if duplicato:
+                    print(f"[WA] Duplicato ignorato (DB): {numero} tipo={tipo}")
+                    _sent_recently[cache_key] = datetime.utcnow()
                     return True
 
             if errore_num:

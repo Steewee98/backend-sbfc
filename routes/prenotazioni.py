@@ -226,7 +226,10 @@ def _check_reminders():
         link_conferma = f"{BACKEND_URL}/api/conferma/{pren.token_conferma}"
 
         # Reminder 2 giorni prima
-        if not pren.reminder_2d_inviato and delta <= timedelta(days=2):
+        # Non mandare se la prenotazione è stata creata meno di 30 min fa
+        # (evita conferma + reminder nello stesso momento)
+        creato_da = (now - pren.created_at).total_seconds() if pren.created_at else 99999
+        if not pren.reminder_2d_inviato and delta <= timedelta(days=2) and creato_da > 1800:
             if pren.telefono:
                 try:
                     msg = f"""Buongiorno {nome_breve},
