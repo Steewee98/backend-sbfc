@@ -1,16 +1,14 @@
-"""Watchdog — controllo automatico salute del sistema.
+"""Watchdog — monitora che il sistema funzioni.
 
-Gira ogni 6 ore, controlla e corregge problemi comuni:
-- Lead nel foglio Google non importati
-- Messaggi WhatsApp in errore da ritentare
-- Prenotazioni senza telefono (cerca nei contatti)
-- Nomi troncati o spazzatura da pulire
-- Reminder non inviati a prenotazioni attive
+Gira ogni 6 ore. Controlla SOLO problemi che bloccano il funzionamento:
+1. Lead sync rotto (lead nelle ads non arrivano nel gestionale)
+2. WhatsApp rotto (tutti i messaggi falliscono)
+3. Reminder non partono (prenotazioni saltate)
 
-Manda un report WhatsApp a Simone solo se trova problemi.
+Se trova problemi, prova a correggerli. Manda email solo se non riesce.
 """
 import os
-import re
+import threading
 import requests
 import csv
 import io
@@ -20,33 +18,19 @@ from models import db, Contatto, Prenotazione, MessaggioWhatsapp
 
 watchdog_bp = Blueprint('watchdog', __name__)
 
-SIMONE_PHONE = os.environ.get('SIMONE_PHONE', '+393382636677')
-
-
-def _is_spam_name(nome):
-    """Rileva nomi spam/spazzatura."""
-    if not nome:
-        return True
-    if len(nome) > 80:
-        return True
-    # Troppi caratteri ripetuti
-    if re.search(r'(.)\1{5,}', nome):
-        return True
-    # Solo simboli/unicode strani
-    lettere = sum(1 for c in nome if c.isalpha())
-    if len(nome) > 3 and lettere / len(nome) < 0.4:
-        return True
-    return False
+REPORT_EMAIL = os.environ.get('WATCHDOG_EMAIL', 'info@stefanodemartis.com')
+_last_report_sent = None
+_report_lock = threading.Lock()
 
 
 def run_watchdog():
-    """Esegue tutti i controlli e ritorna un report."""
+    """Controlla funzionalita' critiche. Ritorna (problemi, fix)."""
     problemi = []
     fix = []
 
-    # --- 1. Lead mancanti dal foglio Google ---
+    # --- 1. Lead sync: ci sono lead nelle ads non importati? ---
     try:
-        from routes.google_leads import SPREADSHEET_ID
+        from routes.google_leads import SPREADSHEET_ID, _do_sync
         url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid=0"
         res = requests.get(url, timeout=15)
         if res.status_code == 200:
@@ -77,139 +61,87 @@ def run_watchdog():
                 if '<test lead' in (nome or '').lower():
                     continue
 
-                esistente = Contatto.query.filter_by(telefono=telefono).first()
-                if not esistente:
-                    # Prova con normalizzazione
-                    from utils.whatsapp import normalizza_telefono
-                    num_norm, _ = normalizza_telefono(telefono)
-                    esistente = Contatto.query.filter_by(telefono=num_norm).first()
-
+                from utils.whatsapp import normalizza_telefono
+                num_norm, _ = normalizza_telefono(telefono)
+                esistente = Contatto.query.filter(
+                    db.or_(
+                        Contatto.telefono == telefono,
+                        Contatto.telefono == num_norm
+                    )
+                ).first()
                 if not esistente:
                     mancanti += 1
 
             if mancanti > 0:
-                # Forza sync
-                from routes.google_leads import _do_sync
                 nuovi, _ = _do_sync()
                 if nuovi > 0:
-                    fix.append(f'{nuovi} lead mancanti importati dal foglio Google')
-                elif mancanti > 0:
-                    problemi.append(f'{mancanti} lead nel foglio non importabili (controllare manualmente)')
+                    fix.append(f'{nuovi} lead mancanti recuperati')
+                else:
+                    problemi.append(
+                        f'{mancanti} lead dalle ads non importabili — '
+                        f'sync bloccato, controllare i log')
+        elif res.status_code != 200:
+            problemi.append(
+                f'Google Sheet non raggiungibile (HTTP {res.status_code}) — '
+                f'i nuovi lead non vengono importati')
     except Exception as e:
-        problemi.append(f'Errore controllo lead Google: {e}')
+        problemi.append(f'Sync lead rotto: {e}')
 
-    # --- 2. Nomi spam/spazzatura da pulire ---
+    # --- 2. WhatsApp: gli ultimi messaggi stanno andando? ---
     try:
-        contatti_spam = Contatto.query.filter(
-            Contatto.tipo_locale == 'Lead Meta Ads'
+        ultime_6h = datetime.utcnow() - timedelta(hours=6)
+        recenti = MessaggioWhatsapp.query.filter(
+            MessaggioWhatsapp.created_at >= ultime_6h
         ).all()
-        puliti = 0
-        for c in contatti_spam:
-            changed = False
-            if _is_spam_name(c.nome):
-                c.nome = 'Contatto'
-                changed = True
-            if c.cognome and _is_spam_name(c.cognome):
-                c.cognome = ''
-                changed = True
-            # Tronca se troppo lungo
-            if c.nome and len(c.nome) > 100:
-                c.nome = c.nome[:100]
-                changed = True
-            if c.cognome and len(c.cognome) > 100:
-                c.cognome = c.cognome[:100]
-                changed = True
-            if changed:
-                db.session.commit()
-                puliti += 1
-        if puliti > 0:
-            fix.append(f'{puliti} contatti con nomi spam puliti')
+        if recenti:
+            errori = [m for m in recenti if m.stato == 'errore']
+            # Problema solo se TUTTI i messaggi recenti falliscono
+            if len(errori) == len(recenti) and len(recenti) >= 2:
+                problemi.append(
+                    f'WhatsApp completamente fermo — '
+                    f'tutti gli ultimi {len(recenti)} messaggi in errore. '
+                    f'Controllare UltraMsg/abbonamento')
     except Exception as e:
-        problemi.append(f'Errore pulizia nomi: {e}')
+        problemi.append(f'Controllo WhatsApp fallito: {e}')
 
-    # --- 3. Prenotazioni senza telefono ---
+    # --- 3. Reminder: prenotazioni future senza reminder che doveva partire ---
     try:
-        pren_senza_tel = Prenotazione.query.filter(
-            db.or_(Prenotazione.telefono == '', Prenotazione.telefono.is_(None)),
+        now = datetime.utcnow()
+        # Prenotazioni entro 2 giorni senza reminder_2d inviato
+        tra_2gg = now + timedelta(days=2)
+        pren_senza_2d = Prenotazione.query.filter(
+            Prenotazione.data_appuntamento <= tra_2gg,
+            Prenotazione.data_appuntamento > now,
+            Prenotazione.reminder_2d_inviato == False,
             Prenotazione.stato.notin_(['cancellato', 'non_confermato']),
-            Prenotazione.data_appuntamento > datetime.utcnow()
+            Prenotazione.telefono != '',
+            Prenotazione.telefono.isnot(None)
         ).all()
-        trovati = 0
-        for pren in pren_senza_tel:
-            telefono = None
-            # Cerca per email
-            if pren.email:
-                contatto = Contatto.query.filter_by(email=pren.email).first()
-                if contatto and contatto.telefono:
-                    telefono = contatto.telefono
-            # Cerca per nome
-            if not telefono and pren.nome:
-                for parte in pren.nome.split():
-                    if len(parte) < 3:
-                        continue
-                    pat = f'%{parte.lower()}%'
-                    contatto = Contatto.query.filter(
-                        db.or_(
-                            db.func.lower(Contatto.nome).like(pat),
-                            db.func.lower(Contatto.cognome).like(pat)
-                        ),
-                        Contatto.telefono != '',
-                        Contatto.telefono.isnot(None)
-                    ).first()
-                    if contatto:
-                        telefono = contatto.telefono
-                        break
-            if telefono:
-                pren.telefono = telefono
-                db.session.commit()
-                trovati += 1
-        if trovati > 0:
-            fix.append(f'{trovati} prenotazioni: telefono trovato dai contatti')
-        non_trovati = len(pren_senza_tel) - trovati
-        if non_trovati > 0:
-            problemi.append(f'{non_trovati} prenotazioni future senza telefono')
-    except Exception as e:
-        problemi.append(f'Errore controllo prenotazioni: {e}')
 
-    # --- 4. Messaggi WhatsApp in errore recenti (ultime 24h) ---
-    try:
-        ieri = datetime.utcnow() - timedelta(hours=24)
-        errori_wa = MessaggioWhatsapp.query.filter(
-            MessaggioWhatsapp.stato.in_(['errore', 'numero_invalido']),
-            MessaggioWhatsapp.created_at >= ieri
-        ).count()
-        if errori_wa > 0:
-            problemi.append(f'{errori_wa} messaggi WhatsApp in errore nelle ultime 24h')
+        if pren_senza_2d:
+            # Forza invio reminder
+            from routes.prenotazioni import _check_reminders
+            _check_reminders()
+            # Verifica se ha funzionato
+            ancora_senza = Prenotazione.query.filter(
+                Prenotazione.id.in_([p.id for p in pren_senza_2d]),
+                Prenotazione.reminder_2d_inviato == False
+            ).count()
+            inviati = len(pren_senza_2d) - ancora_senza
+            if inviati > 0:
+                fix.append(f'{inviati} reminder in ritardo inviati')
+            if ancora_senza > 0:
+                problemi.append(
+                    f'{ancora_senza} prenotazioni vicine senza reminder — '
+                    f'il sistema reminder non funziona')
     except Exception as e:
-        problemi.append(f'Errore controllo WA: {e}')
-
-    # --- 5. Contatti duplicati (stesso telefono) ---
-    try:
-        from sqlalchemy import func
-        duplicati = db.session.query(
-            Contatto.telefono, func.count(Contatto.id)
-        ).filter(
-            Contatto.telefono != '',
-            Contatto.telefono.isnot(None)
-        ).group_by(Contatto.telefono).having(
-            func.count(Contatto.id) > 1
-        ).count()
-        if duplicati > 0:
-            problemi.append(f'{duplicati} numeri di telefono duplicati nei contatti')
-    except Exception as e:
-        problemi.append(f'Errore controllo duplicati: {e}')
+        problemi.append(f'Controllo reminder fallito: {e}')
 
     return problemi, fix
 
 
-REPORT_EMAIL = os.environ.get('WATCHDOG_EMAIL', 'info@stefanodemartis.com')
-
-_last_report_sent = None
-_report_lock = __import__('threading').Lock()
-
-
 def send_watchdog_report(problemi, fix):
-    """Manda report via email solo se ci sono problemi/fix. Max 1 ogni ora."""
+    """Manda email solo se ci sono problemi critici. Max 1 ogni ora."""
     global _last_report_sent
     if not problemi and not fix:
         return
@@ -217,7 +149,6 @@ def send_watchdog_report(problemi, fix):
     with _report_lock:
         now = datetime.utcnow()
         if _last_report_sent and (now - _last_report_sent).total_seconds() < 3600:
-            print("[WATCHDOG] Report già inviato nell'ultima ora, skip")
             return
         _last_report_sent = now
 
@@ -225,7 +156,7 @@ def send_watchdog_report(problemi, fix):
 
     data_str = datetime.utcnow().strftime('%d/%m/%Y %H:%M')
 
-    html = f"""<h2>Report Sistema — SB Food Consulting</h2>
+    html = f"""<h2 style="font-family:Arial,sans-serif">Report Sistema SB Food</h2>
     <p style="color:#5a5a5a;font-size:14px">{data_str} UTC</p>"""
 
     if fix:
@@ -235,27 +166,22 @@ def send_watchdog_report(problemi, fix):
         html += '</ul>'
 
     if problemi:
-        html += '<h3 style="color:#c0392b">Problemi da verificare</h3><ul>'
+        html += '<h3 style="color:#c0392b">Richiede attenzione</h3><ul>'
         for p in problemi:
             html += f'<li>{p}</li>'
         html += '</ul>'
+    else:
+        html += '<p style="color:#1e8449">Tutto corretto, nessun intervento manuale necessario.</p>'
 
-    if not problemi:
-        html += '<p style="color:#1e8449;font-weight:bold">Nessun problema in sospeso.</p>'
-
-    html += '<hr><p style="color:#999;font-size:12px">Watchdog automatico — <a href="https://www.sbfoodconsulting.com/admin.html">Apri gestionale</a></p>'
+    html += '<hr><p style="color:#999;font-size:12px"><a href="https://www.sbfoodconsulting.com/admin.html">Apri gestionale</a></p>'
 
     try:
-        invia_email(
-            REPORT_EMAIL, 'Stefano',
-            f'Report Sistema SB Food — {data_str}',
-            html
-        )
+        invia_email(REPORT_EMAIL, 'Stefano',
+                    f'Report Sistema SB Food — {data_str}', html)
     except Exception as e:
-        print(f"[WATCHDOG] Errore invio report email: {e}")
+        print(f"[WATCHDOG] Errore invio email: {e}")
 
 
-# --- Endpoint manuale ---
 @watchdog_bp.route('/api/watchdog', methods=['POST'])
 def run_watchdog_endpoint():
     token = request.headers.get('X-Admin-Token')
@@ -264,8 +190,7 @@ def run_watchdog_endpoint():
 
     problemi, fix = run_watchdog()
 
-    send_report = request.args.get('report', 'false') == 'true'
-    if send_report:
+    if request.args.get('report') == 'true':
         send_watchdog_report(problemi, fix)
 
     return jsonify({
