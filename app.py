@@ -66,6 +66,7 @@ from routes.whatsapp_logs import whatsapp_logs_bp
 from routes.google_leads import google_leads_bp
 from routes.prenotazioni import prenotazioni_bp
 from routes.callcenter import callcenter_bp
+from routes.watchdog import watchdog_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -79,6 +80,7 @@ app.register_blueprint(whatsapp_logs_bp)
 app.register_blueprint(google_leads_bp)
 app.register_blueprint(prenotazioni_bp)
 app.register_blueprint(callcenter_bp)
+app.register_blueprint(watchdog_bp)
 
 
 # Ensure tables exist
@@ -166,8 +168,28 @@ def _background_reminders():
         time.sleep(REMINDER_INTERVAL)
 
 
+# --- Background watchdog ogni 6 ore ---
+WATCHDOG_INTERVAL = int(os.environ.get('WATCHDOG_INTERVAL', 21600))
+
+def _background_watchdog():
+    """Controlla salute del sistema e corregge problemi."""
+    time.sleep(120)  # attendi avvio completo
+    while True:
+        try:
+            with app.app_context():
+                from routes.watchdog import run_watchdog, send_watchdog_report
+                problemi, fix = run_watchdog()
+                if problemi or fix:
+                    print(f"[WATCHDOG] Problemi: {len(problemi)}, Fix: {len(fix)}")
+                    send_watchdog_report(problemi, fix)
+                else:
+                    print("[WATCHDOG] Tutto ok")
+        except Exception as e:
+            print(f"[WATCHDOG] Errore: {e}")
+        time.sleep(WATCHDOG_INTERVAL)
+
+
 # Avvia solo in produzione (gunicorn) e solo una volta per processo
-# Usa un file lock per evitare che più worker avviino thread duplicati
 _bg_started = False
 if not app.debug or os.environ.get('FORCE_SYNC'):
     if not _bg_started:
@@ -179,6 +201,10 @@ if not app.debug or os.environ.get('FORCE_SYNC'):
         _reminder_thread = threading.Thread(target=_background_reminders, daemon=True)
         _reminder_thread.start()
         print(f"[REMINDER] Avviato — controlla ogni {REMINDER_INTERVAL}s")
+
+        _watchdog_thread = threading.Thread(target=_background_watchdog, daemon=True)
+        _watchdog_thread.start()
+        print(f"[WATCHDOG] Avviato — controlla ogni {WATCHDOG_INTERVAL}s")
 
 
 if __name__ == '__main__':
