@@ -98,6 +98,7 @@ def ensure_db():
                 for table, col, ddl in [
                     ('risultati_checklist', 'email_inviata', 'BOOLEAN DEFAULT FALSE'),
                     ('risultati_checklist', 'tipo_email', 'VARCHAR(20)'),
+                    ('risultati_checklist', 'session_id', 'VARCHAR(64)'),
                     ('prenotazioni', 'link_chiamata', 'VARCHAR(500)'),
                 ]:
                     try:
