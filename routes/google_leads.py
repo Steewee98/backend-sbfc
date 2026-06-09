@@ -100,22 +100,32 @@ def _do_sync():
 
             nome_breve = nome.split()[0] \
                          if nome else 'Contatto'
+            cognome_lead = ' '.join(nome.split()[1:]) \
+                           if nome and len(nome.split()) > 1 \
+                           else ''
 
-            contatto = Contatto(
-                nome=nome_breve,
-                cognome=' '.join(nome.split()[1:])
-                         if nome and len(nome.split()) > 1
-                         else '',
-                email=email,
-                telefono=telefono,
-                tipo_locale='Lead Meta Ads',
-                messaggio='Da Google Sheets Meta Lead Form',
-                stato='nuovo',
-                created_at=datetime.utcnow()
-            )
-            db.session.add(contatto)
-            db.session.commit()
-            nuovi += 1
+            # Tronca campi per evitare errori DB
+            nome_breve = nome_breve[:100]
+            cognome_lead = cognome_lead[:100]
+
+            try:
+                contatto = Contatto(
+                    nome=nome_breve,
+                    cognome=cognome_lead,
+                    email=email,
+                    telefono=telefono,
+                    tipo_locale='Lead Meta Ads',
+                    messaggio='Da Google Sheets Meta Lead Form',
+                    stato='nuovo',
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(contatto)
+                db.session.commit()
+                nuovi += 1
+            except Exception as e:
+                db.session.rollback()
+                print(f"[SYNC] Errore inserimento lead {nome_breve}: {e}")
+                continue
 
             if telefono:
                 try:
