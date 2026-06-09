@@ -202,33 +202,46 @@ def run_watchdog():
     return problemi, fix
 
 
+REPORT_EMAIL = os.environ.get('WATCHDOG_EMAIL', 'info@stefanodemartis.com')
+
+
 def send_watchdog_report(problemi, fix):
-    """Manda report a Simone via WhatsApp solo se ci sono problemi/fix."""
+    """Manda report via email solo se ci sono problemi/fix."""
     if not problemi and not fix:
         return
 
-    from utils.whatsapp import invia_whatsapp
+    from utils.email import invia_email
 
-    msg = "REPORT SISTEMA SB Food\n"
-    msg += datetime.utcnow().strftime('%d/%m/%Y %H:%M') + ' UTC\n'
+    data_str = datetime.utcnow().strftime('%d/%m/%Y %H:%M')
+
+    html = f"""<h2>Report Sistema — SB Food Consulting</h2>
+    <p style="color:#5a5a5a;font-size:14px">{data_str} UTC</p>"""
 
     if fix:
-        msg += "\nCorretto automaticamente:\n"
+        html += '<h3 style="color:#1e8449">Corretto automaticamente</h3><ul>'
         for f in fix:
-            msg += f"- {f}\n"
+            html += f'<li>{f}</li>'
+        html += '</ul>'
 
     if problemi:
-        msg += "\nProblemi da verificare:\n"
+        html += '<h3 style="color:#c0392b">Problemi da verificare</h3><ul>'
         for p in problemi:
-            msg += f"- {p}\n"
+            html += f'<li>{p}</li>'
+        html += '</ul>'
 
     if not problemi:
-        msg += "\nNessun problema in sospeso."
+        html += '<p style="color:#1e8449;font-weight:bold">Nessun problema in sospeso.</p>'
+
+    html += '<hr><p style="color:#999;font-size:12px">Watchdog automatico — <a href="https://www.sbfoodconsulting.com/admin.html">Apri gestionale</a></p>'
 
     try:
-        invia_whatsapp(SIMONE_PHONE, msg, nome='Sistema', tipo='watchdog_report')
+        invia_email(
+            REPORT_EMAIL, 'Stefano',
+            f'Report Sistema SB Food — {data_str}',
+            html
+        )
     except Exception as e:
-        print(f"[WATCHDOG] Errore invio report: {e}")
+        print(f"[WATCHDOG] Errore invio report email: {e}")
 
 
 # --- Endpoint manuale ---
