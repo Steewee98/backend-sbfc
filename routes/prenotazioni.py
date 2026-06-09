@@ -1,4 +1,5 @@
 import requests as http_requests
+import threading
 from flask import Blueprint, request, jsonify
 from models import db, Prenotazione, Contatto
 from utils.whatsapp import invia_whatsapp
@@ -6,6 +7,9 @@ from datetime import datetime, timedelta
 from dateutil import parser as dateparser
 import os
 import secrets
+
+_calendly_lock = threading.Lock()
+_reminder_lock = threading.Lock()
 
 prenotazioni_bp = Blueprint('prenotazioni', __name__)
 
@@ -20,6 +24,16 @@ CALENDLY_USER = os.environ.get(
 # --- Sync Calendly (polling) ---
 def _sync_calendly():
     """Legge eventi Calendly via API e importa nuove prenotazioni."""
+    if not _calendly_lock.acquire(blocking=False):
+        print("[CALENDLY] Sync già in corso, skip")
+        return 0
+    try:
+        return _sync_calendly_inner()
+    finally:
+        _calendly_lock.release()
+
+
+def _sync_calendly_inner():
     token = CALENDLY_TOKEN
     if not token:
         return 0
@@ -130,7 +144,12 @@ def _sync_calendly():
             token_conferma=tok
         )
         db.session.add(pren)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            print(f"[CALENDLY] Prenotazione già esistente: {event_uri}")
+            continue
         nuovi += 1
 
         # WhatsApp immediato di conferma
@@ -204,6 +223,16 @@ def conferma_appuntamento(token):
 # --- Logica reminder (chiamata dal background thread) ---
 def _check_reminders():
     """Controlla prenotazioni e invia reminder se necessario."""
+    if not _reminder_lock.acquire(blocking=False):
+        print("[REMINDER] Check già in corso, skip")
+        return
+    try:
+        _check_reminders_inner()
+    finally:
+        _reminder_lock.release()
+
+
+def _check_reminders_inner():
     # Prima sincronizza da Calendly
     try:
         nuovi = _sync_calendly()
