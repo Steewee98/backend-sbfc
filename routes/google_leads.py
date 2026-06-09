@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 import requests
+import threading
 from models import db, Contatto, MessaggioWhatsapp
-from utils.whatsapp import invia_whatsapp
+from utils.whatsapp import invia_whatsapp, normalizza_telefono
 from utils.email import invia_email
 from utils.templates import email_benvenuto_contatto
 from datetime import datetime
@@ -13,9 +14,21 @@ google_leads_bp = Blueprint('google_leads', __name__)
 
 SPREADSHEET_ID = '1PWYr4y1X3SQg9VGf2I1VR6p2hheDAyn3JaH5VztLnNw'
 
+_sync_lock = threading.Lock()
+
 
 def _do_sync():
-    """Core sync logic — ritorna (nuovi, già_presenti)."""
+    """Core sync logic — ritorna (nuovi, già_presenti). Thread-safe."""
+    if not _sync_lock.acquire(blocking=False):
+        print("[SYNC] Già in esecuzione, skip")
+        return 0, 0
+    try:
+        return _do_sync_inner()
+    finally:
+        _sync_lock.release()
+
+
+def _do_sync_inner():
     nuovi = 0
     già_presenti = 0
 
@@ -86,10 +99,19 @@ def _do_sync():
             if not telefono and not email:
                 continue
 
+            # Normalizza telefono per il check duplicati
+            tel_norm = telefono
+            if telefono:
+                tel_norm, _ = normalizza_telefono(telefono)
+
             esistente = None
             if telefono:
-                esistente = Contatto.query\
-                    .filter_by(telefono=telefono).first()
+                esistente = Contatto.query.filter(
+                    db.or_(
+                        Contatto.telefono == telefono,
+                        Contatto.telefono == tel_norm
+                    )
+                ).first()
             if not esistente and email:
                 esistente = Contatto.query\
                     .filter_by(email=email).first()
