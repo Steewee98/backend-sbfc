@@ -7,8 +7,18 @@ from models import db, MessaggioWhatsapp
 ULTRAMSG_INSTANCE = os.environ.get('ULTRAMSG_INSTANCE', 'instance179124')
 ULTRAMSG_TOKEN = os.environ.get('ULTRAMSG_TOKEN', 'zct26h140v589icp')
 
-# Lock per evitare invii doppi da thread concorrenti
+# Lock + set in memoria per evitare invii doppi
 _send_lock = threading.Lock()
+_sent_recently = {}  # (numero, tipo) -> timestamp
+
+
+def _cleanup_sent_cache():
+    """Rimuovi entries più vecchie di 5 minuti."""
+    now = datetime.utcnow()
+    expired = [k for k, t in _sent_recently.items()
+               if (now - t).total_seconds() > 300]
+    for k in expired:
+        del _sent_recently[k]
 
 
 def normalizza_telefono(telefono):
@@ -43,17 +53,12 @@ def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
             numero, errore_num = normalizza_telefono(telefono)
 
             if errore_num is None:
-                # Deduplicazione: evita doppi invii allo stesso numero/tipo in 5 min
-                cinque_min_fa = datetime.utcnow() - timedelta(minutes=5)
-                duplicato = MessaggioWhatsapp.query.filter(
-                    MessaggioWhatsapp.telefono == numero,
-                    MessaggioWhatsapp.tipo == tipo,
-                    MessaggioWhatsapp.stato == 'inviato',
-                    MessaggioWhatsapp.created_at >= cinque_min_fa
-                ).first()
-                if duplicato:
-                    print(f"[WA] Duplicato ignorato: {numero} tipo={tipo}")
-                    return True  # già inviato, tutto ok
+                # Deduplicazione in memoria (istantanea, no problemi di sessione DB)
+                _cleanup_sent_cache()
+                cache_key = (numero, tipo)
+                if cache_key in _sent_recently:
+                    print(f"[WA] Duplicato ignorato (cache): {numero} tipo={tipo}")
+                    return True
 
             if errore_num:
                 print(f"[WA] Numero non valido {numero}: {errore_num}")
@@ -85,6 +90,10 @@ def invia_whatsapp(telefono, messaggio, nome='', tipo='manuale'):
             result = res.json()
             stato = 'inviato' if result.get('sent') == 'true' else 'errore'
             print(f"WhatsApp {stato} a {numero}: {result}")
+
+            # Segna come inviato nella cache in memoria
+            if stato == 'inviato':
+                _sent_recently[(numero, tipo)] = datetime.utcnow()
 
             # Salva nel database
             try:
