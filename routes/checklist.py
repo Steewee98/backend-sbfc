@@ -65,7 +65,7 @@ def traccia_evento():
     if not _check_rate_limit(ip):
         return jsonify({'error': 'Too many requests'}), 429
 
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     session_id = (data.get('session_id') or '').strip()
     evento = (data.get('evento') or '').strip()
     dettaglio = data.get('dettaglio')
