@@ -204,11 +204,22 @@ def run_watchdog():
 
 REPORT_EMAIL = os.environ.get('WATCHDOG_EMAIL', 'info@stefanodemartis.com')
 
+_last_report_sent = None
+_report_lock = __import__('threading').Lock()
+
 
 def send_watchdog_report(problemi, fix):
-    """Manda report via email solo se ci sono problemi/fix."""
+    """Manda report via email solo se ci sono problemi/fix. Max 1 ogni ora."""
+    global _last_report_sent
     if not problemi and not fix:
         return
+
+    with _report_lock:
+        now = datetime.utcnow()
+        if _last_report_sent and (now - _last_report_sent).total_seconds() < 3600:
+            print("[WATCHDOG] Report già inviato nell'ultima ora, skip")
+            return
+        _last_report_sent = now
 
     from utils.email import invia_email
 
