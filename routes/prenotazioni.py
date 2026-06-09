@@ -295,7 +295,7 @@ SB Food Consulting"""
 
 la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).{link_info}
 
-Non abbiamo ancora ricevuto la sua conferma. Per partecipare, confermi cliccando qui:
+Per partecipare, confermi la sua presenza cliccando qui:
 {link_conferma}
 
 Senza conferma la chiamata non sara' effettuata.
