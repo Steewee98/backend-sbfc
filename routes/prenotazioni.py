@@ -265,12 +265,9 @@ def _check_reminders_inner():
 
 le ricordo la chiamata con Simone Braghetta prevista per il {data_str}.
 
-Per confermare la sua partecipazione, clicchi qui:
-{link_conferma}
-
 Se non puo' piu' partecipare, ci faccia sapere rispondendo a questo messaggio.
 
-Grazie,
+A presto,
 SB Food Consulting"""
                     invia_whatsapp(pren.telefono, msg,
                         nome=nome_breve, tipo='reminder_2d')
@@ -298,10 +295,10 @@ SB Food Consulting"""
 
 la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).{link_info}
 
-Non abbiamo ancora ricevuto la sua conferma. Confermi cliccando qui:
+Non abbiamo ancora ricevuto la sua conferma. Per partecipare, confermi cliccando qui:
 {link_conferma}
 
-Senza conferma la chiamata potrebbe non essere effettuata.
+Senza conferma la chiamata non sara' effettuata.
 
 SB Food Consulting"""
                 try:
