@@ -104,30 +104,30 @@ def run_watchdog():
     except Exception as e:
         problemi.append(f'Controllo WhatsApp fallito: {e}')
 
-    # --- 3. Reminder: prenotazioni future senza reminder che doveva partire ---
+    # --- 3. Reminder: prenotazioni entro 1h senza reminder che doveva partire ---
     try:
         now = datetime.utcnow()
-        # Prenotazioni entro 2 giorni senza reminder_2d inviato
-        tra_2gg = now + timedelta(days=2)
-        pren_senza_2d = Prenotazione.query.filter(
-            Prenotazione.data_appuntamento <= tra_2gg,
+        # Prenotazioni entro 1 ora senza reminder 1h inviato
+        tra_1h = now + timedelta(hours=1)
+        pren_senza_reminder = Prenotazione.query.filter(
+            Prenotazione.data_appuntamento <= tra_1h,
             Prenotazione.data_appuntamento > now,
-            Prenotazione.reminder_2d_inviato == False,
+            Prenotazione.reminder_2h_inviato == False,
             Prenotazione.stato.notin_(['cancellato', 'non_confermato']),
             Prenotazione.telefono != '',
             Prenotazione.telefono.isnot(None)
         ).all()
 
-        if pren_senza_2d:
+        if pren_senza_reminder:
             # Forza invio reminder
             from routes.prenotazioni import _check_reminders
             _check_reminders()
             # Verifica se ha funzionato
             ancora_senza = Prenotazione.query.filter(
-                Prenotazione.id.in_([p.id for p in pren_senza_2d]),
-                Prenotazione.reminder_2d_inviato == False
+                Prenotazione.id.in_([p.id for p in pren_senza_reminder]),
+                Prenotazione.reminder_2h_inviato == False
             ).count()
-            inviati = len(pren_senza_2d) - ancora_senza
+            inviati = len(pren_senza_reminder) - ancora_senza
             if inviati > 0:
                 fix.append(f'{inviati} reminder in ritardo inviati')
             if ancora_senza > 0:

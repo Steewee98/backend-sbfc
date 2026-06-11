@@ -132,10 +132,10 @@ class Prenotazione(db.Model):
     telefono = db.Column(db.String(50))
     data_appuntamento = db.Column(db.DateTime, nullable=False)
     calendly_event_id = db.Column(db.String(300), unique=True)
-    # Stato reminder: pending -> reminder_2d -> reminder_2h -> confermato / non_confermato
+    # Stato reminder: pending -> reminder_2h (reminder 1h prima) -> confermato / non_confermato
     stato = db.Column(db.String(30), default='pending')
-    reminder_2d_inviato = db.Column(db.Boolean, default=False)
-    reminder_2h_inviato = db.Column(db.Boolean, default=False)
+    reminder_2d_inviato = db.Column(db.Boolean, default=False)  # legacy, non più usato
+    reminder_2h_inviato = db.Column(db.Boolean, default=False)  # reminder 1h prima
     confermato = db.Column(db.Boolean, default=False)
     token_conferma = db.Column(db.String(64), unique=True)
     link_chiamata = db.Column(db.String(500))

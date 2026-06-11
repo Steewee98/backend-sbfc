@@ -163,7 +163,7 @@ def _sync_calendly_inner():
 
 la sua chiamata con Simone Braghetta e' confermata per il {ora_ita.strftime('%d/%m/%Y alle %H:%M')}.{link_info}
 
-Le invieremo un promemoria prima dell'appuntamento.
+Le invieremo un promemoria un'ora prima dell'appuntamento.
 
 A presto,
 Simone Braghetta
@@ -254,38 +254,17 @@ def _check_reminders_inner():
         data_str = ora_ita.strftime('%d/%m/%Y alle %H:%M')
         link_conferma = f"{BACKEND_URL}/api/conferma/{pren.token_conferma}"
 
-        # Reminder 2 giorni prima
-        # Non mandare se la prenotazione è stata creata meno di 30 min fa
-        # (evita conferma + reminder nello stesso momento)
+        # Reminder 1 ora prima — con bottone conferma presenza
+        # Salta se la prenotazione è stata creata meno di 5 min fa
+        # (evita conferma prenotazione + reminder nello stesso momento)
         creato_da = (now - pren.created_at).total_seconds() if pren.created_at else 99999
-        if not pren.reminder_2d_inviato and delta <= timedelta(days=2) and creato_da > 1800:
-            if pren.telefono:
-                try:
-                    msg = f"""Buongiorno {nome_breve},
-
-le ricordo la chiamata con Simone Braghetta prevista per il {data_str}.
-
-Se non puo' piu' partecipare, ci faccia sapere rispondendo a questo messaggio.
-
-A presto,
-SB Food Consulting"""
-                    invia_whatsapp(pren.telefono, msg,
-                        nome=nome_breve, tipo='reminder_2d')
-                except Exception as e:
-                    print(f"[REMINDER] 2d error: {e}")
-
-            pren.reminder_2d_inviato = True
-            pren.stato = 'reminder_2d'
-            db.session.commit()
-
-        # Reminder 2 ore prima
-        if not pren.reminder_2h_inviato and delta <= timedelta(hours=2):
+        if not pren.reminder_2h_inviato and delta <= timedelta(hours=1) and creato_da > 300:
             if pren.telefono:
                 link_info = f"\n\nLink chiamata:\n{pren.link_chiamata}" if pren.link_chiamata else ""
                 if pren.confermato:
                     msg = f"""Buongiorno {nome_breve},
 
-tra poco la chiamata con Simone Braghetta ({data_str}).{link_info}
+tra un'ora la chiamata con Simone Braghetta ({data_str}).{link_info}
 
 Tutto confermato, a tra poco!
 
@@ -293,7 +272,7 @@ SB Food Consulting"""
                 else:
                     msg = f"""Buongiorno {nome_breve},
 
-la chiamata con Simone Braghetta e' tra 2 ore ({data_str}).{link_info}
+la chiamata con Simone Braghetta e' tra un'ora ({data_str}).{link_info}
 
 Per partecipare, confermi la sua presenza cliccando qui:
 {link_conferma}
@@ -305,7 +284,7 @@ SB Food Consulting"""
                     invia_whatsapp(pren.telefono, msg,
                         nome=nome_breve, tipo='reminder_2h')
                 except Exception as e:
-                    print(f"[REMINDER] 2h error: {e}")
+                    print(f"[REMINDER] 1h error: {e}")
 
             pren.reminder_2h_inviato = True
             pren.stato = 'reminder_2h' if not pren.confermato \
