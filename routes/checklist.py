@@ -45,7 +45,7 @@ _rate_limit = defaultdict(list)
 RATE_LIMIT_MAX = 30
 RATE_LIMIT_WINDOW = 60
 
-EVENTI_VALIDI = {'vista', 'iniziata', 'domanda', 'completata', 'email_lasciata', 'pdf_scaricato'}
+EVENTI_VALIDI = {'vista', 'iniziata', 'domanda', 'completata', 'email_lasciata', 'pdf_scaricato', 'auto_start'}
 
 
 def _check_rate_limit(ip):
@@ -336,11 +336,15 @@ def get_funnel():
     abbandoni_15 = 0
     mobile = 0
     desktop = 0
+    da_sponsorizzata = 0
+    completate_sponsorizzata = 0
 
     for sid, evts in sessioni.items():
         eventi_set = {e.evento for e in evts}
         ua = evts[0].user_agent or ''
         is_mobile = any(kw in ua.lower() for kw in ['mobile', 'android', 'iphone', 'ipad'])
+
+        is_sponsorizzata = 'auto_start' in eventi_set
 
         if 'vista' in eventi_set:
             viste += 1
@@ -348,10 +352,14 @@ def get_funnel():
                 mobile += 1
             else:
                 desktop += 1
+        if is_sponsorizzata:
+            da_sponsorizzata += 1
         if 'iniziata' in eventi_set:
             iniziate += 1
         if 'completata' in eventi_set:
             completate += 1
+            if is_sponsorizzata:
+                completate_sponsorizzata += 1
         if 'email_lasciata' in eventi_set:
             email_lasciate += 1
         if 'pdf_scaricato' in eventi_set:
@@ -384,5 +392,9 @@ def get_funnel():
         'dispositivi': {
             'mobile': mobile,
             'desktop': desktop
+        },
+        'sponsorizzata': {
+            'sessioni': da_sponsorizzata,
+            'completate': completate_sponsorizzata
         }
     })
