@@ -149,6 +149,8 @@ def _do_sync_inner():
                 print(f"[SYNC] Errore inserimento lead {nome_breve}: {e}")
                 continue
 
+            contattato_ok = False
+
             if telefono:
                 try:
                     msg = f"""Buongiorno {nome_breve},
@@ -162,9 +164,10 @@ https://calendly.com/sbfoodconsulting-info/30min
 
 A presto,
 Simone Braghetta"""
-                    invia_whatsapp(telefono, msg,
-                        nome=nome_breve,
-                        tipo='meta_leads')
+                    if invia_whatsapp(telefono, msg,
+                            nome=nome_breve,
+                            tipo='meta_leads'):
+                        contattato_ok = True
                 except Exception as e:
                     print(f"WA error: {e}")
 
@@ -172,14 +175,20 @@ Simone Braghetta"""
                 try:
                     corpo = email_benvenuto_contatto(
                         nome_breve)
-                    invia_email(
+                    if invia_email(
                         email, nome_breve,
                         "Grazie per il tuo interesse — "
                         "SB Food Consulting",
                         corpo
-                    )
+                    ):
+                        contattato_ok = True
                 except Exception as e:
                     print(f"Email error: {e}")
+
+            # Aggiorna lo stato: il lead è stato effettivamente contattato
+            if contattato_ok:
+                contatto.stato = 'contattato'
+                db.session.commit()
 
     return nuovi, già_presenti
 
