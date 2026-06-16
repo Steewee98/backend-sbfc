@@ -100,6 +100,7 @@ def ensure_db():
                     ('risultati_checklist', 'tipo_email', 'VARCHAR(20)'),
                     ('risultati_checklist', 'session_id', 'VARCHAR(64)'),
                     ('prenotazioni', 'link_chiamata', 'VARCHAR(500)'),
+                    ('contatti', 'priorita_richiamo', 'BOOLEAN DEFAULT FALSE'),
                 ]:
                     try:
                         conn.execute(db.text(

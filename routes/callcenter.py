@@ -30,7 +30,10 @@ def coda_chiamate():
         Contatto.telefono.isnot(None),
         Contatto.stato.in_(['nuovo', 'contattato']),
         ~Contatto.id.in_(db.session.query(esiti_chiusi))
-    ).order_by(Contatto.created_at.asc()).all()
+    ).order_by(
+        db.func.coalesce(Contatto.priorita_richiamo, False).desc(),
+        Contatto.created_at.asc()
+    ).all()
 
     result = []
     for c in contatti:

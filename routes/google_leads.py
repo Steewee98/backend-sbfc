@@ -356,6 +356,89 @@ Simone Braghetta"""
     })
 
 
+@google_leads_bp.route('/api/fix-blocco-profilo', methods=['POST'])
+def fix_blocco_profilo():
+    """One-shot: dopo il blocco del profilo WhatsApp i messaggi risultavano
+    'inviato' ma non sono mai partiti. Cancella quei log fasulli e rimette
+    in coda (in cima) i contatti che credevamo di aver contattato.
+
+    Body opzionale: {"cutoff": "2026-06-11T08:57:57.306411", "dry_run": true}
+    """
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    cutoff_str = data.get('cutoff', '2026-06-11T08:57:57.306411')
+    dry_run = bool(data.get('dry_run', False))
+
+    try:
+        cutoff = datetime.fromisoformat(cutoff_str)
+    except ValueError:
+        return jsonify({'error': f'cutoff non valido: {cutoff_str}'}), 400
+
+    # Messaggi che dichiarano l'invio ma sono falliti (profilo bloccato)
+    falsi = MessaggioWhatsapp.query.filter(
+        MessaggioWhatsapp.stato == 'inviato',
+        MessaggioWhatsapp.created_at >= cutoff
+    ).all()
+
+    # Numeri coinvolti, normalizzati per il match coi contatti
+    numeri_falliti = set()
+    for m in falsi:
+        if m.telefono:
+            norm, _ = normalizza_telefono(m.telefono)
+            numeri_falliti.add(norm)
+
+    # Contatti che credevamo contattati ma non lo sono
+    candidati = Contatto.query.filter(
+        Contatto.telefono.isnot(None),
+        Contatto.telefono != '',
+        Contatto.stato.in_(['nuovo', 'contattato'])
+    ).all()
+
+    contatti_da_riportare = []
+    for c in candidati:
+        norm, _ = normalizza_telefono(c.telefono)
+        if norm in numeri_falliti:
+            contatti_da_riportare.append(c)
+
+    if dry_run:
+        return jsonify({
+            'dry_run': True,
+            'cutoff': cutoff_str,
+            'messaggi_da_cancellare': len(falsi),
+            'contatti_da_riportare': len(contatti_da_riportare),
+            'anteprima_contatti': [
+                {'id': c.id, 'nome': c.nome, 'telefono': c.telefono,
+                 'stato': c.stato}
+                for c in contatti_da_riportare[:20]
+            ]
+        })
+
+    # 1) Cancella i log fasulli
+    for m in falsi:
+        db.session.delete(m)
+
+    # 2) Riporta i contatti in cima: stato -> nuovo + priorità richiamo
+    riportati = 0
+    for c in contatti_da_riportare:
+        if c.stato == 'contattato':
+            c.stato = 'nuovo'
+        c.priorita_richiamo = True
+        c.updated_at = datetime.utcnow()
+        riportati += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'cutoff': cutoff_str,
+        'messaggi_cancellati': len(falsi),
+        'contatti_riportati_in_cima': riportati
+    })
+
+
 @google_leads_bp.route('/api/auto-sync-leads', methods=['POST'])
 def auto_sync_leads():
     """Endpoint per cron automatico — usa token dedicato."""

@@ -15,6 +15,8 @@ class Contatto(db.Model):
     tipo_locale = db.Column(db.String(100))
     messaggio = db.Column(db.Text)
     stato = db.Column(db.String(20), default='nuovo')
+    # Quando True il contatto viene messo in cima alla coda del call center
+    priorita_richiamo = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -28,6 +30,7 @@ class Contatto(db.Model):
             'tipo_locale': self.tipo_locale,
             'messaggio': self.messaggio,
             'stato': self.stato,
+            'priorita_richiamo': bool(self.priorita_richiamo),
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
