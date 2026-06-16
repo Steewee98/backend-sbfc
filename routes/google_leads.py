@@ -151,25 +151,10 @@ def _do_sync_inner():
 
             contattato_ok = False
 
-            if telefono:
-                try:
-                    msg = f"""Buongiorno {nome_breve},
-
-grazie per il suo interesse in SB Food Consulting.
-
-Sono Simone Braghetta. Sarò felice di parlare del suo locale.
-
-Prenoti una chiamata gratuita:
-https://calendly.com/sbfoodconsulting-info/30min
-
-A presto,
-Simone Braghetta"""
-                    if invia_whatsapp(telefono, msg,
-                            nome=nome_breve,
-                            tipo='meta_leads'):
-                        contattato_ok = True
-                except Exception as e:
-                    print(f"WA error: {e}")
+            # NB: l'invio WhatsApp a freddo è DISABILITATO.
+            # Mandare messaggi a numeri che non ci hanno scritto per primi
+            # ha causato la sospensione del profilo. I lead con telefono ma
+            # senza email restano 'nuovo' e vanno chiamati dal call center.
 
             if email:
                 try:
