@@ -64,6 +64,7 @@ from routes.brandizzatore import brandizzatore_bp
 from routes.checklist import checklist_bp
 from routes.whatsapp_logs import whatsapp_logs_bp
 from routes.whatsapp_cloud import whatsapp_cloud_bp
+from routes.whatsapp_inbox import whatsapp_inbox_bp
 from routes.google_leads import google_leads_bp
 from routes.prenotazioni import prenotazioni_bp
 from routes.callcenter import callcenter_bp
@@ -79,6 +80,7 @@ app.register_blueprint(brandizzatore_bp)
 app.register_blueprint(checklist_bp)
 app.register_blueprint(whatsapp_logs_bp)
 app.register_blueprint(whatsapp_cloud_bp)
+app.register_blueprint(whatsapp_inbox_bp)
 app.register_blueprint(google_leads_bp)
 app.register_blueprint(prenotazioni_bp)
 app.register_blueprint(callcenter_bp)
