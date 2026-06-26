@@ -26,7 +26,7 @@ def _punteggi_html(data):
             font-size:14px;color:#1a1a1a">{nome_area}</td>
             <td style="padding:10px 0;border-bottom:1px solid #edeae5;
             font-size:14px;font-weight:bold;color:{colore};
-            text-align:right">{val}/4</td>
+            text-align:right">{val}/3</td>
             </tr>"""
     return rows
 
@@ -69,7 +69,7 @@ text-align:center">
     <p style="color:#fff;font-size:48px;
     font-weight:bold;margin:0;
     font-family:Georgia,serif">
-    {punteggio}<span style="font-size:24px">/20</span></p>
+    {punteggio}<span style="font-size:24px">/15</span></p>
 </td></tr>"""
 
 
@@ -110,7 +110,7 @@ def email_checklist_critico(nome, punteggio, data):
     Ciao {nome},<br><br>
     hai appena completato la checklist operativa
     di SB Food Consulting. Il tuo punteggio
-    di <strong>{punteggio}/20</strong> indica
+    di <strong>{punteggio}/15</strong> indica
     che ci sono aree critiche che stanno
     costando soldi al tuo locale ogni giorno.</p>
 
@@ -125,7 +125,7 @@ def email_checklist_critico(nome, punteggio, data):
         Area pi&ugrave; critica</p>
         <p style="color:#1a1a1a;font-size:15px;
         font-weight:bold;margin:0">
-        {area_nome}: {area_val}/4</p>
+        {area_nome}: {area_val}/3</p>
     </div>
 
     <!-- DETTAGLIO PUNTEGGI -->
@@ -185,7 +185,7 @@ def email_checklist_medio(nome, punteggio, data):
     Ciao {nome},<br><br>
     hai completato la checklist operativa
     di SB Food Consulting. Con un punteggio
-    di <strong>{punteggio}/20</strong>, il tuo locale
+    di <strong>{punteggio}/15</strong>, il tuo locale
     ha delle basi ma ci sono aree specifiche
     che, se migliorate, possono fare
     una differenza concreta sui tuoi numeri.</p>
@@ -201,7 +201,7 @@ def email_checklist_medio(nome, punteggio, data):
         Area da migliorare</p>
         <p style="color:#1a1a1a;font-size:15px;
         font-weight:bold;margin:0">
-        {area_nome}: {area_val}/4</p>
+        {area_nome}: {area_val}/3</p>
     </div>
 
     <!-- DETTAGLIO PUNTEGGI -->
@@ -265,7 +265,7 @@ def email_checklist_buono(nome, punteggio, data):
     line-height:1.9;margin:0 0 24px">
     Ciao {nome},<br><br>
     complimenti &mdash; il tuo punteggio
-    di <strong>{punteggio}/20</strong> dice che hai
+    di <strong>{punteggio}/15</strong> dice che hai
     gi&agrave; una gestione sopra la media.
     Il tuo locale ha fondamenta solide
     su cui costruire.</p>

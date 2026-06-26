@@ -45,7 +45,7 @@ _rate_limit = defaultdict(list)
 RATE_LIMIT_MAX = 30
 RATE_LIMIT_WINDOW = 60
 
-EVENTI_VALIDI = {'vista', 'iniziata', 'domanda', 'completata', 'email_lasciata', 'pdf_scaricato', 'auto_start'}
+EVENTI_VALIDI = {'vista', 'iniziata', 'prima_risposta', 'domanda', 'completata', 'email_lasciata', 'pdf_scaricato', 'auto_start'}
 
 
 def _check_rate_limit(ip):
@@ -77,7 +77,7 @@ def traccia_evento():
     if dettaglio is not None:
         try:
             dettaglio = int(dettaglio)
-            if dettaglio < 1 or dettaglio > 20:
+            if dettaglio < 1 or dettaglio > 15:
                 dettaglio = None
         except (ValueError, TypeError):
             dettaglio = None
@@ -169,16 +169,16 @@ def _invia_emails(risultato, nome, email):
         invia_email(
             'info@sbfoodconsulting.com',
             'Simone',
-            f'Nuova checklist — {nome} ({punteggio}/20)',
+            f'Nuova checklist — {nome} ({punteggio}/15)',
             f"""<h3>Nuova checklist completata</h3>
             <p><strong>Nome:</strong> {nome}</p>
             <p><strong>Email:</strong> {email}</p>
-            <p><strong>Punteggio:</strong> {punteggio}/20</p>
-            <p><strong>Food Cost:</strong> {risultato.punteggio_food_cost}/4</p>
-            <p><strong>Personale:</strong> {risultato.punteggio_personale}/4</p>
-            <p><strong>Menu:</strong> {risultato.punteggio_menu}/4</p>
-            <p><strong>Comunicazione:</strong> {risultato.punteggio_comunicazione}/4</p>
-            <p><strong>Numeri:</strong> {risultato.punteggio_numeri}/4</p>
+            <p><strong>Punteggio:</strong> {punteggio}/15</p>
+            <p><strong>Food Cost:</strong> {risultato.punteggio_food_cost}/3</p>
+            <p><strong>Personale:</strong> {risultato.punteggio_personale}/3</p>
+            <p><strong>Menu:</strong> {risultato.punteggio_menu}/3</p>
+            <p><strong>Comunicazione:</strong> {risultato.punteggio_comunicazione}/3</p>
+            <p><strong>Numeri:</strong> {risultato.punteggio_numeri}/3</p>
             <a href="https://www.sbfoodconsulting.com/admin.html">Apri gestionale &rarr;</a>"""
         )
     except Exception as e:
@@ -193,11 +193,11 @@ def _invia_emails(risultato, nome, email):
             email_checklist_buono
         )
 
-        if punteggio <= 8:
+        if punteggio <= 6:
             tipo = 'critico'
             oggetto = "Il tuo locale ha bisogno di un intervento — SB Food Consulting"
             corpo = email_checklist_critico(nome, punteggio, score_data)
-        elif punteggio <= 14:
+        elif punteggio <= 10:
             tipo = 'medio'
             oggetto = "Abbiamo trovato le aree critiche del tuo locale — SB Food Consulting"
             corpo = email_checklist_medio(nome, punteggio, score_data)
@@ -232,11 +232,11 @@ def _build_checklist_email(r):
         'punteggio_numeri': r.punteggio_numeri,
     }
     p = r.punteggio_totale or 0
-    if p <= 8:
+    if p <= 6:
         tipo = 'critico'
         oggetto = "Il tuo locale ha bisogno di un intervento — SB Food Consulting"
         corpo = email_checklist_critico(r.nome or 'Ristoratore', p, data)
-    elif p <= 14:
+    elif p <= 10:
         tipo = 'medio'
         oggetto = "Abbiamo trovato le aree critiche del tuo locale — SB Food Consulting"
         corpo = email_checklist_medio(r.nome or 'Ristoratore', p, data)
@@ -398,3 +398,79 @@ def get_funnel():
             'completate': completate_sponsorizzata
         }
     })
+
+
+# --- Sessioni iniziate (tutte, anche non completate) ---
+
+TOTALE_DOMANDE = 15
+
+
+@checklist_bp.route('/api/checklist/sessioni', methods=['GET'])
+def get_sessioni():
+    """Elenco di TUTTE le sessioni (anche non completate) con stato e
+    quanto lontano è arrivato l'utente. Per la vista admin."""
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    giorni = request.args.get('giorni', 30, type=int)
+    if giorni < 1 or giorni > 365:
+        giorni = 30
+
+    da = datetime.utcnow() - timedelta(days=giorni)
+    eventi = EventoChecklist.query.filter(
+        EventoChecklist.timestamp >= da
+    ).order_by(EventoChecklist.timestamp.asc()).all()
+
+    sessioni = defaultdict(list)
+    for ev in eventi:
+        sessioni[ev.session_id].append(ev)
+
+    out = []
+    for sid, evts in sessioni.items():
+        eventi_set = {e.evento for e in evts}
+        primo = evts[0]
+        ua = (primo.user_agent or '').lower()
+        is_mobile = any(kw in ua for kw in
+                        ['mobile', 'android', 'iphone', 'ipad'])
+
+        max_domanda = 0
+        for e in evts:
+            if e.evento == 'domanda' and e.dettaglio:
+                max_domanda = max(max_domanda, e.dettaglio)
+
+        ha_risposto = ('domanda' in eventi_set) or \
+                      ('prima_risposta' in eventi_set)
+
+        if 'completata' in eventi_set:
+            stato = 'completata'
+            max_domanda = TOTALE_DOMANDE
+        elif ha_risposto:
+            stato = 'abbandonata'
+        else:
+            stato = 'nessuna_risposta'
+
+        out.append({
+            'session_id': sid,
+            'inizio': primo.timestamp.isoformat(),
+            'dispositivo': 'mobile' if is_mobile else 'desktop',
+            'fonte': 'sponsorizzata' if 'auto_start' in eventi_set
+                     else 'organica',
+            'ultima_domanda': max_domanda,
+            'totale_domande': TOTALE_DOMANDE,
+            'stato': stato,
+            'email_lasciata': 'email_lasciata' in eventi_set,
+        })
+
+    out.sort(key=lambda x: x['inizio'], reverse=True)
+
+    riepilogo = {
+        'totale': len(out),
+        'nessuna_risposta': sum(1 for s in out
+                                if s['stato'] == 'nessuna_risposta'),
+        'abbandonate': sum(1 for s in out if s['stato'] == 'abbandonata'),
+        'completate': sum(1 for s in out if s['stato'] == 'completata'),
+    }
+
+    return jsonify({'giorni': giorni, 'riepilogo': riepilogo,
+                    'sessioni': out})
