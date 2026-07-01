@@ -194,3 +194,33 @@ class Visita(db.Model):
     paese = db.Column(db.String(100))
     dispositivo = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class EventoTraffico(db.Model):
+    """Eventi di navigazione per-visitatore (solo con consenso cookie).
+    visitor_id = persistente (localStorage), session_id = per visita."""
+    __tablename__ = 'eventi_traffico'
+
+    id = db.Column(db.Integer, primary_key=True)
+    visitor_id = db.Column(db.String(64), index=True)
+    session_id = db.Column(db.String(64), index=True)
+    tipo = db.Column(db.String(30))   # pageview, click, scroll, tempo, identificazione
+    pagina = db.Column(db.String(300))
+    valore = db.Column(db.String(300))  # label CTA, % scroll, secondi, email...
+    referrer = db.Column(db.String(500))
+    dispositivo = db.Column(db.String(20))
+    ip_hash = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'visitor_id': self.visitor_id,
+            'session_id': self.session_id,
+            'tipo': self.tipo,
+            'pagina': self.pagina,
+            'valore': self.valore,
+            'referrer': self.referrer,
+            'dispositivo': self.dispositivo,
+            'created_at': self.created_at.isoformat(),
+        }
