@@ -72,11 +72,13 @@ def track_evento():
     valore = (str(data.get('valore')) if data.get('valore') is not None
               else '')[:300]
     referrer = (data.get('referrer') or '')[:500]
-    if not visitor_id:
+    # Gli eventi scheda si contano sempre, anche in forma anonima (senza
+    # visitor_id). Per gli altri tipi il visitor_id resta obbligatorio.
+    if not visitor_id and tipo not in SCHEDE_TIPI:
         return jsonify({'error': 'visitor_id mancante'}), 400
 
     ev = EventoTraffico(
-        visitor_id=visitor_id,
+        visitor_id=visitor_id or None,
         session_id=session_id,
         tipo=tipo,
         pagina=pagina,
@@ -158,6 +160,8 @@ def visitatori():
 
     vis = defaultdict(list)
     for e in eventi:
+        if not e.visitor_id:
+            continue  # eventi scheda anonimi: non fanno percorso
         vis[e.visitor_id].append(e)
 
     out = []
@@ -360,6 +364,8 @@ def percorsi_pdf():
 
     vis = defaultdict(list)
     for e in eventi:
+        if not e.visitor_id:
+            continue  # eventi scheda anonimi: non fanno percorso
         vis[e.visitor_id].append(e)
 
     MAX_EVENTI = 80  # per visitatore, per evitare PDF enormi
