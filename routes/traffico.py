@@ -15,7 +15,11 @@ from routes.tracking import BOT_KEYWORDS, _track_visit
 
 traffico_bp = Blueprint('traffico', __name__)
 
-TIPI_VALIDI = {'pageview', 'click', 'scroll', 'tempo', 'identificazione'}
+TIPI_VALIDI = {'pageview', 'click', 'scroll', 'tempo', 'identificazione',
+               'scheda_download', 'scheda_vista'}
+
+# Eventi relativi alle schede operative scaricabili (Academy → Risorse)
+SCHEDE_TIPI = {'scheda_download', 'scheda_vista'}
 
 # Rate limit leggero per IP
 _rate = defaultdict(list)
@@ -216,3 +220,90 @@ def visitatore(vid):
         'fonte': _fonte(evs[0].referrer),
         'eventi': [e.to_dict() for e in evs],
     })
+
+
+def _nome_scheda(slug):
+    """Da 'scheda-food-cost' / 'assets/pdf/risorse/scheda-food-cost.pdf'
+    a 'Scheda Food Cost' (nome leggibile per il gestionale)."""
+    if not slug:
+        return 'Scheda'
+    s = slug.split('/')[-1].replace('.pdf', '')
+    s = s.replace('-esempio', '').replace('-', ' ').strip()
+    return s.title() if s else 'Scheda'
+
+
+@traffico_bp.route('/api/traffico/schede', methods=['GET'])
+def schede():
+    """Chi ha visto e scaricato le schede operative (Academy → Risorse).
+    Aggrega gli eventi scheda_vista / scheda_download e risolve l'identità
+    del visitatore quando disponibile."""
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    giorni = request.args.get('giorni', 30, type=int)
+    if giorni < 1 or giorni > 365:
+        giorni = 30
+    da = datetime.utcnow() - timedelta(days=giorni)
+
+    eventi = EventoTraffico.query.filter(
+        EventoTraffico.tipo.in_(list(SCHEDE_TIPI)),
+        EventoTraffico.created_at >= da,
+    ).order_by(EventoTraffico.created_at.desc()).all()
+
+    # Identità per visitor_id (ultima identificazione nota, anche fuori finestra)
+    vids = list({e.visitor_id for e in eventi if e.visitor_id})
+    identita = {}
+    if vids:
+        ids = EventoTraffico.query.filter(
+            EventoTraffico.tipo == 'identificazione',
+            EventoTraffico.visitor_id.in_(vids),
+        ).order_by(EventoTraffico.created_at.asc()).all()
+        for e in ids:
+            if e.valore:
+                identita[e.visitor_id] = e.valore
+
+    per_scheda = {}
+    accessi = []
+    dl_visitatori = set()
+    for e in eventi:
+        slug = (e.valore or '').strip()
+        s = per_scheda.setdefault(slug, {
+            'slug': slug, 'nome': _nome_scheda(slug),
+            'viste': 0, 'download': 0, 'download_unici': set(),
+        })
+        if e.tipo == 'scheda_download':
+            s['download'] += 1
+            if e.visitor_id:
+                s['download_unici'].add(e.visitor_id)
+                dl_visitatori.add(e.visitor_id)
+            azione = 'download'
+        else:
+            s['viste'] += 1
+            azione = 'vista'
+        accessi.append({
+            'scheda': _nome_scheda(slug),
+            'slug': slug,
+            'azione': azione,
+            'identita': identita.get(e.visitor_id),
+            'visitor_id': e.visitor_id,
+            'dispositivo': e.dispositivo,
+            'fonte': _fonte(e.referrer),
+            'quando': e.created_at.isoformat(),
+        })
+
+    schede_out = [{
+        'slug': s['slug'], 'nome': s['nome'],
+        'viste': s['viste'], 'download': s['download'],
+        'download_unici': len(s['download_unici']),
+    } for s in per_scheda.values()]
+    schede_out.sort(key=lambda x: (x['download'], x['viste']), reverse=True)
+
+    riepilogo = {
+        'download_totali': sum(s['download'] for s in schede_out),
+        'viste_totali': sum(s['viste'] for s in schede_out),
+        'schede_attive': len(schede_out),
+        'visitatori_download': len(dl_visitatori),
+    }
+    return jsonify({'giorni': giorni, 'riepilogo': riepilogo,
+                    'schede': schede_out, 'accessi': accessi[:500]})
