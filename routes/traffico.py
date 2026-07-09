@@ -8,9 +8,10 @@ import time
 import hashlib
 from collections import defaultdict
 from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 
 from models import db, EventoTraffico
+from utils.percorsi_pdf import genera_percorsi_pdf
 from routes.tracking import BOT_KEYWORDS, _track_visit
 
 traffico_bp = Blueprint('traffico', __name__)
@@ -307,3 +308,100 @@ def schede():
     }
     return jsonify({'giorni': giorni, 'riepilogo': riepilogo,
                     'schede': schede_out, 'accessi': accessi[:500]})
+
+
+def _fmt_dt(dt):
+    try:
+        return dt.strftime('%d/%m %H:%M')
+    except Exception:
+        return ''
+
+
+def _disp_label(d):
+    return {'mobile': 'Mobile', 'tablet': 'Tablet',
+            'desktop': 'Desktop'}.get(d, (d or '—').capitalize())
+
+
+def _descrivi_evento(e):
+    """Testo leggibile di un evento per la timeline del PDF."""
+    t = e.tipo
+    if t == 'pageview':
+        return f"Pagina {e.pagina or '/'}"
+    if t == 'click':
+        return f"Click: {e.valore or ''}"
+    if t == 'scroll':
+        return f"Scroll {e.valore or ''}%"
+    if t == 'tempo':
+        return f"Tempo {e.valore or ''}s su {e.pagina or ''}"
+    if t == 'identificazione':
+        return f"Identificato: {e.valore or ''}"
+    if t == 'scheda_download':
+        return f"Scheda scaricata: {_nome_scheda(e.valore or '')}"
+    if t == 'scheda_vista':
+        return f"Esempio scheda visto: {_nome_scheda(e.valore or '')}"
+    return t or 'evento'
+
+
+@traffico_bp.route('/api/traffico/percorsi.pdf', methods=['GET'])
+def percorsi_pdf():
+    """Esporta in PDF tutti i percorsi dei visitatori del periodo."""
+    token = request.headers.get('X-Admin-Token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    giorni = request.args.get('giorni', 30, type=int)
+    if giorni < 1 or giorni > 365:
+        giorni = 30
+    da = datetime.utcnow() - timedelta(days=giorni)
+
+    eventi = EventoTraffico.query.filter(
+        EventoTraffico.created_at >= da
+    ).order_by(EventoTraffico.created_at.asc()).all()
+
+    vis = defaultdict(list)
+    for e in eventi:
+        vis[e.visitor_id].append(e)
+
+    MAX_EVENTI = 80  # per visitatore, per evitare PDF enormi
+    visitatori = []
+    for vid, evs in vis.items():
+        pageviews = [e for e in evs if e.tipo == 'pageview']
+        ident = None
+        for e in evs:
+            if e.tipo == 'identificazione' and e.valore:
+                ident = e.valore
+        righe = [{
+            'tipo': e.tipo,
+            'testo': _descrivi_evento(e),
+            'quando': _fmt_dt(e.created_at),
+        } for e in evs[:MAX_EVENTI]]
+        if len(evs) > MAX_EVENTI:
+            righe.append({'tipo': '', 'quando': '',
+                          'testo': f'… e altri {len(evs) - MAX_EVENTI} eventi'})
+        visitatori.append({
+            'identita': ident,
+            'dispositivo': _disp_label(evs[0].dispositivo),
+            'fonte': _fonte(evs[0].referrer),
+            'prima_visita': _fmt_dt(evs[0].created_at),
+            'ultima_attivita': _fmt_dt(evs[-1].created_at),
+            '_ultima_dt': evs[-1].created_at,
+            'pageviews': len(pageviews),
+            'eventi_totali': len(evs),
+            'eventi': righe,
+        })
+
+    visitatori.sort(key=lambda x: x['_ultima_dt'], reverse=True)
+    visitatori = visitatori[:300]
+
+    riepilogo = {
+        'visitatori': len(vis),
+        'convertiti': sum(1 for v in visitatori if v['identita']),
+        'pageviews_totali': sum(v['pageviews'] for v in visitatori),
+        'eventi_totali': len(eventi),
+    }
+
+    generato_il = datetime.utcnow().strftime('%d/%m/%Y %H:%M UTC')
+    pdf = genera_percorsi_pdf(visitatori, giorni, generato_il, riepilogo)
+    nome_file = f'percorsi-visitatori-{giorni}g.pdf'
+    return send_file(pdf, mimetype='application/pdf',
+                     as_attachment=True, download_name=nome_file)
