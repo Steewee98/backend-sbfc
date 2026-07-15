@@ -132,6 +132,18 @@ def lista_lead():
     return jsonify([l.to_dict() for l in q]), 200
 
 
+@lead_strumenti_bp.route('/api/lead-strumenti/<int:lead_id>', methods=['DELETE'])
+@admin_required
+def elimina_lead(lead_id):
+    lead = LeadStrumento.query.get(lead_id)
+    if not lead:
+        return jsonify({'error': 'Lead non trovato'}), 404
+    db.session.delete(lead)
+    db.session.commit()
+    print('[LEAD-STRUMENTI] eliminato lead #%s (%s)' % (lead_id, lead.email), flush=True)
+    return jsonify({'success': True}), 200
+
+
 @lead_strumenti_bp.route('/api/lead-strumenti/stats', methods=['GET'])
 @admin_required
 def stats_lead():
