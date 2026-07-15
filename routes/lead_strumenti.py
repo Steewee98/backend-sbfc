@@ -10,6 +10,7 @@ import csv
 import time
 import hashlib
 import logging
+import requests
 from io import StringIO
 from collections import defaultdict
 from datetime import datetime
@@ -21,6 +22,13 @@ from models import db, LeadStrumento
 logger = logging.getLogger(__name__)
 
 lead_strumenti_bp = Blueprint('lead_strumenti', __name__)
+
+# I PDF vivono sul sito statico, ma Railway (edge) NON applica l'header
+# Content-Disposition di nginx: su iOS il PDF si apre in anteprima invece di
+# scaricarsi. Il backend invece riesce a mandare l'header, quindi serviamo i
+# download da qui forzando l'attachment (proxy verso il sito statico, con cache).
+_STATIC_PDF_BASE = os.environ.get('STATIC_PDF_BASE', 'https://www.sbfoodconsulting.com/assets/pdf/risorse')
+_pdf_cache = {}
 
 # Slug validi dei 7 strumenti (coerenti con le pagine /strumenti/<slug>)
 STRUMENTI_VALIDI = {
@@ -72,6 +80,34 @@ def admin_required(f):
             return jsonify({'error': 'Non autorizzato'}), 401
         return f(*args, **kwargs)
     return decorated
+
+
+@lead_strumenti_bp.route('/api/strumenti/<slug>/pdf', methods=['GET'])
+def download_pdf(slug):
+    """Serve il PDF di uno strumento come download (Content-Disposition: attachment).
+    tipo=vuoto (default) -> modello · tipo=esempio -> esempio compilato."""
+    slug = (slug or '').strip().lower()
+    if slug not in STRUMENTI_VALIDI:
+        return jsonify({'error': 'Strumento non valido'}), 404
+
+    tipo = (request.args.get('tipo') or 'vuoto').lower()
+    fname = slug + ('-esempio.pdf' if tipo == 'esempio' else '.pdf')
+
+    data = _pdf_cache.get(fname)
+    if data is None:
+        try:
+            r = requests.get(_STATIC_PDF_BASE + '/' + fname, timeout=15)
+            if r.status_code != 200 or not r.content:
+                return jsonify({'error': 'PDF non trovato'}), 404
+            data = r.content
+            _pdf_cache[fname] = data
+        except Exception:
+            return jsonify({'error': 'PDF non disponibile'}), 502
+
+    resp = Response(data, mimetype='application/pdf')
+    resp.headers['Content-Disposition'] = 'attachment; filename="%s"' % fname
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 
 @lead_strumenti_bp.route('/api/lead-strumenti', methods=['POST'])
