@@ -33,7 +33,9 @@ CORS(app, resources={
             "https://sbfoodconsulting.com",
             "https://sito-sbfc-production.up.railway.app",
             "http://localhost:8080",
-            "http://localhost:3000"
+            "http://localhost:3000",
+            "http://localhost:8090",
+            "http://localhost:8091"
         ],
         "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         "allow_headers": [
@@ -70,6 +72,7 @@ from routes.google_leads import google_leads_bp
 from routes.prenotazioni import prenotazioni_bp
 from routes.callcenter import callcenter_bp
 from routes.watchdog import watchdog_bp
+from routes.lead_strumenti import lead_strumenti_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -87,6 +90,7 @@ app.register_blueprint(google_leads_bp)
 app.register_blueprint(prenotazioni_bp)
 app.register_blueprint(callcenter_bp)
 app.register_blueprint(watchdog_bp)
+app.register_blueprint(lead_strumenti_bp)
 
 
 # Ensure tables exist

@@ -224,3 +224,39 @@ class EventoTraffico(db.Model):
             'dispositivo': self.dispositivo,
             'created_at': self.created_at.isoformat(),
         }
+
+
+class LeadStrumento(db.Model):
+    """Lead raccolti dal download dei 7 strumenti PDF dell'Academy.
+    L'email viene solo salvata (riuso marketing futuro) — nessuna mail transazionale.
+    Il consenso marketing esplicito è la prova per poter riutilizzare l'email."""
+    __tablename__ = 'lead_strumenti'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(200), nullable=False, index=True)
+    strumento = db.Column(db.String(100), nullable=False, index=True)  # slug dello strumento
+    consenso_marketing = db.Column(db.Boolean, default=False)
+    consenso_at = db.Column(db.DateTime)  # timestamp del consenso (prova)
+    referrer = db.Column(db.String(500))
+    utm_source = db.Column(db.String(200))
+    utm_medium = db.Column(db.String(200))
+    utm_campaign = db.Column(db.String(200))
+    dispositivo = db.Column(db.String(20))
+    ip_hash = db.Column(db.String(64))
+    user_agent = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'strumento': self.strumento,
+            'consenso_marketing': bool(self.consenso_marketing),
+            'consenso_at': self.consenso_at.isoformat() if self.consenso_at else None,
+            'referrer': self.referrer,
+            'utm_source': self.utm_source,
+            'utm_medium': self.utm_medium,
+            'utm_campaign': self.utm_campaign,
+            'dispositivo': self.dispositivo,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
