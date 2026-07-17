@@ -104,8 +104,12 @@ def download_pdf(slug):
         except Exception:
             return jsonify({'error': 'PDF non disponibile'}), 502
 
+    # attachment (default) = Safari/desktop scaricano il file.
+    # inline=1 = per i browser in-app (Instagram/Facebook) che non hanno il
+    # gestore download: mostrano il PDF, poi l'utente fa Condividi -> Salva su File.
+    disp = 'inline' if request.args.get('inline') == '1' else 'attachment'
     resp = Response(data, mimetype='application/pdf')
-    resp.headers['Content-Disposition'] = 'attachment; filename="%s"' % fname
+    resp.headers['Content-Disposition'] = '%s; filename="%s"' % (disp, fname)
     resp.headers['Cache-Control'] = 'public, max-age=86400'
     return resp
 
