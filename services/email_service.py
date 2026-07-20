@@ -1,6 +1,8 @@
 import os
+import time
 import logging
 import threading
+from urllib.parse import quote
 import resend
 
 logger = logging.getLogger(__name__)
@@ -136,3 +138,79 @@ def invia_email_credenziali(nome: str, destinatario: str, password: str, moduli:
         daemon=True,
     )
     thread.start()
+
+
+# ─── Campagna "Riscopri le schede" (follow-up lead strumenti) ──────────
+
+CAMPAGNA_SUBJECT = "Hai ricevuto la tua Checklist? — SB Food Consulting"
+UNSUB_MAILTO = "mailto:info@sbfoodconsulting.com?subject=" + quote(
+    "Cancellami dalla lista schede")
+
+_CAMPAGNA_TEXT = (
+    "Ciao,\n\n"
+    "nei giorni scorsi hai richiesto la nostra Checklist di Apertura e Chiusura.\n"
+    "Se il download non e' partito, riscaricala qui:\n"
+    "https://web-production-f3794.up.railway.app/api/strumenti/checklist-apertura-chiusura/pdf\n\n"
+    "Prendi anche le altre schede gratuite:\n"
+    "- Scheda Food Cost: https://web-production-f3794.up.railway.app/api/strumenti/scheda-food-cost/pdf\n"
+    "- Scheda Ricetta: https://web-production-f3794.up.railway.app/api/strumenti/scheda-ricetta/pdf\n\n"
+    "Stanno arrivando altre schede: seguici su Instagram per non perderle\n"
+    "https://www.instagram.com/sbfoodconsulting\n\n"
+    "E se vuoi il metodo completo, la SB Food Academy: singolo modulo 17,91 EUR "
+    "(invece di 19,90) o percorso completo 85,41 EUR (invece di 94,90) con il codice SCHEDE10.\n"
+    "https://www.sbfoodconsulting.com/academy.html\n\n"
+    "---\n"
+    "SB Food Consulting — Roma, Italia — info@sbfoodconsulting.com\n"
+    "Per non ricevere piu' queste email rispondi 'Cancellami'.\n"
+)
+
+
+def campagna_configurata():
+    """True se la chiave Resend è presente."""
+    return bool(os.environ.get('RESEND_API_KEY'))
+
+
+def _send_campagna_schede(destinatari):
+    """Invia la email di follow-up via Resend, una alla volta con una piccola
+    pausa (deliverability)."""
+    resend.api_key = os.environ.get('RESEND_API_KEY')
+    mail_from = os.environ.get('MAIL_FROM', 'SB Food Consulting <onboarding@resend.dev>')
+
+    template_path = os.path.join(TEMPLATES_DIR, 'email_riscopri_schede.html')
+    with open(template_path, 'r', encoding='utf-8') as f:
+        base_html = f.read()
+    html_content = base_html.replace('[UNSUBSCRIBE_URL]', UNSUB_MAILTO)
+
+    inviati, falliti = 0, 0
+    for email in destinatari:
+        try:
+            params: resend.Emails.SendParams = {
+                "from": mail_from,
+                "to": [email],
+                "subject": CAMPAGNA_SUBJECT,
+                "html": html_content,
+                "text": _CAMPAGNA_TEXT,
+                "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+            }
+            res = resend.Emails.send(params)
+            inviati += 1
+            logger.info("Campagna schede inviata a %s (id: %s)", email, res.get('id'))
+        except Exception as e:
+            falliti += 1
+            logger.error("Errore invio campagna a %s: %s", email, e)
+        time.sleep(0.6)
+
+    logger.info("Campagna schede completata: %s inviate, %s fallite", inviati, falliti)
+    print("[CAMPAGNA-SCHEDE] completata: %s inviate, %s fallite" % (inviati, falliti),
+          flush=True)
+
+
+def invia_campagna_schede(destinatari):
+    """Avvia l'invio della campagna in background (non blocca la risposta HTTP)."""
+    if not campagna_configurata():
+        logger.warning("RESEND_API_KEY non configurata, campagna non inviata")
+        return False
+    thread = threading.Thread(
+        target=_send_campagna_schede, args=(list(destinatari),), daemon=True)
+    thread.start()
+    return True

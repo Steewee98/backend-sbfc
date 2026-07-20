@@ -95,6 +95,9 @@ def crea_checkout():
                 'quantity': 1,
             }],
             mode='payment',
+            # Abilita il campo "codice sconto" nel checkout (es. SCHEDE10 -10%).
+            # Il coupon/promo code va creato una volta nella dashboard Stripe.
+            allow_promotion_codes=True,
             success_url=f'{frontend_url}/academy.html?pagamento=successo&prodotto={prodotto_id}',
             cancel_url=f'{frontend_url}/academy.html?pagamento=annullato',
             metadata={

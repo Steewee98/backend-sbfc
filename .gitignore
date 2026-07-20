@@ -7,3 +7,6 @@ __pycache__/
 *.sqlite
 instance/
 .DS_Store
+
+# Anteprime/screenshot Playwright (transitori)
+.playwright-mcp/

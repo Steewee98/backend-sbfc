@@ -202,6 +202,58 @@ def stats_lead():
     }), 200
 
 
+def _email_uniche_consenso():
+    """Email uniche dei lead con consenso marketing (i destinatari della campagna)."""
+    rows = (db.session.query(LeadStrumento.email)
+            .filter(LeadStrumento.consenso_marketing.is_(True))
+            .distinct().all())
+    return sorted({(r[0] or '').strip().lower() for r in rows if r[0]})
+
+
+@lead_strumenti_bp.route('/api/lead-strumenti/campagna', methods=['GET'])
+@admin_required
+def campagna_preview():
+    """Anteprima: quanti e quali destinatari riceverebbero la campagna. Non invia nulla."""
+    emails = _email_uniche_consenso()
+    return jsonify({'totale_destinatari': len(emails), 'emails': emails}), 200
+
+
+@lead_strumenti_bp.route('/api/lead-strumenti/campagna', methods=['POST'])
+@admin_required
+def campagna_invia():
+    """Invia la campagna 'Riscopri le schede'.
+    Body:
+      {"mode":"test","to":"tua@email.com"}  -> invia UNA email di prova
+      {"mode":"reale","conferma":"INVIA"}   -> invia a TUTTI i destinatari unici
+    """
+    from services.email_service import invia_campagna_schede
+
+    data = request.get_json(force=True, silent=True) or {}
+    mode = (data.get('mode') or '').strip().lower()
+
+    if mode == 'test':
+        to = (data.get('to') or '').strip().lower()
+        if not EMAIL_RE.match(to):
+            return jsonify({'error': 'Indirizzo di test non valido'}), 400
+        if not invia_campagna_schede([to]):
+            return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
+        return jsonify({'success': True, 'mode': 'test', 'destinatario': to}), 200
+
+    if mode == 'reale':
+        if data.get('conferma') != 'INVIA':
+            return jsonify({'error': 'Conferma mancante: aggiungi "conferma":"INVIA"'}), 400
+        emails = _email_uniche_consenso()
+        if not emails:
+            return jsonify({'error': 'Nessun destinatario con consenso'}), 400
+        if not invia_campagna_schede(emails):
+            return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
+        print('[CAMPAGNA-SCHEDE] avviato invio reale a %s destinatari' % len(emails),
+              flush=True)
+        return jsonify({'success': True, 'mode': 'reale', 'accodati': len(emails)}), 202
+
+    return jsonify({'error': 'mode non valido: usa "test" o "reale"'}), 400
+
+
 @lead_strumenti_bp.route('/api/lead-strumenti/export.csv', methods=['GET'])
 @admin_required
 def export_csv():
