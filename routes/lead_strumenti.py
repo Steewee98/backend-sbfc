@@ -223,8 +223,12 @@ def campagna_preview():
 def campagna_invia():
     """Invia la campagna 'Riscopri le schede'.
     Body:
-      {"mode":"test","to":"tua@email.com"}  -> invia UNA email di prova
-      {"mode":"reale","conferma":"INVIA"}   -> invia a TUTTI i destinatari unici
+      {"mode":"test","to":"tua@email.com"}          -> invia UNA email di prova
+      {"mode":"reale","conferma":"INVIA"}           -> invia a TUTTI i destinatari unici
+      {"mode":"reale","conferma":"INVIA","limit":10}         -> primi 10 (canary)
+      {"mode":"reale","conferma":"INVIA","offset":10}        -> dall'11° in poi (resto)
+    La lista è ordinata in modo deterministico: offset+limit permettono di
+    inviare a scaglioni senza doppioni (es. prima limit=10, poi offset=10).
     """
     from services.email_service import invia_campagna_schede
 
@@ -245,11 +249,30 @@ def campagna_invia():
         emails = _email_uniche_consenso()
         if not emails:
             return jsonify({'error': 'Nessun destinatario con consenso'}), 400
-        if not invia_campagna_schede(emails):
+
+        # Scaglioni opzionali su lista ordinata: offset + limit
+        try:
+            offset = max(int(data.get('offset', 0) or 0), 0)
+            limit = data.get('limit')
+            limit = int(limit) if limit is not None else None
+        except (TypeError, ValueError):
+            return jsonify({'error': 'offset/limit non validi'}), 400
+
+        selezionati = emails[offset:offset + limit] if limit is not None else emails[offset:]
+        if not selezionati:
+            return jsonify({'error': 'Nessun destinatario in questo scaglione'}), 400
+
+        if not invia_campagna_schede(selezionati):
             return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
-        print('[CAMPAGNA-SCHEDE] avviato invio reale a %s destinatari' % len(emails),
-              flush=True)
-        return jsonify({'success': True, 'mode': 'reale', 'accodati': len(emails)}), 202
+        print('[CAMPAGNA-SCHEDE] avviato invio a %s destinatari (offset=%s limit=%s)'
+              % (len(selezionati), offset, limit), flush=True)
+        return jsonify({
+            'success': True, 'mode': 'reale',
+            'accodati': len(selezionati),
+            'offset': offset, 'limit': limit,
+            'totale_lista': len(emails),
+            'destinatari': selezionati,
+        }), 202
 
     return jsonify({'error': 'mode non valido: usa "test" o "reale"'}), 400
 
