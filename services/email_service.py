@@ -148,7 +148,7 @@ UNSUB_MAILTO = "mailto:info@sbfoodconsulting.com?subject=" + quote(
 
 _CAMPAGNA_TEXT = (
     "Ciao,\n\n"
-    "nei giorni scorsi hai richiesto la nostra Checklist di Apertura e Chiusura.\n"
+    "grazie per aver scaricato la nostra Checklist di Apertura e Chiusura.\n"
     "Se il download non e' partito, riscaricala qui:\n"
     "https://web-production-f3794.up.railway.app/api/strumenti/checklist-apertura-chiusura/pdf\n\n"
     "Prendi anche le altre schede gratuite:\n"

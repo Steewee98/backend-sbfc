@@ -161,6 +161,25 @@ def crea_lead():
     print(msg, flush=True)
     logger.info(msg)
 
+    # Auto-invio email di follow-up SOLO la prima volta che vediamo questa email:
+    # se in seguito la stessa persona scarica altre schede, non la ri-contattiamo.
+    # L'invio è in background (non blocca la risposta) e non deve mai far fallire
+    # il salvataggio del lead, quindi è protetto da try/except.
+    gia_contattato = LeadStrumento.query.filter(
+        LeadStrumento.email == email,
+        LeadStrumento.id != lead.id,
+    ).first() is not None
+    if not gia_contattato:
+        try:
+            from services.email_service import invia_campagna_schede
+            if invia_campagna_schede([email]):
+                print('[LEAD-STRUMENTI] auto-invio follow-up avviato per %s' % email,
+                      flush=True)
+            else:
+                logger.warning('Auto-invio follow-up saltato (Resend non configurato) per %s', email)
+        except Exception as e:
+            logger.error('Errore auto-invio follow-up a %s: %s', email, e)
+
     return jsonify({'success': True, 'id': lead.id}), 201
 
 
