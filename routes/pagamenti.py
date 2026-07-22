@@ -211,7 +211,8 @@ def _gestisci_pagamento(session):
         db.session.add(pagamento)
         db.session.commit()
 
-        # Invia email
+        # Invia email (via Resend). L'errore NON deve essere silenzioso: se le
+        # credenziali non partono, lo studente resta senza accesso (vedi caso Maria).
         try:
             from utils.email import invia_email
             from utils.templates import email_benvenuto_academy
@@ -221,16 +222,26 @@ def _gestisci_pagamento(session):
                 importo=importo,
                 stripe_id=session.id
             )
-            invia_email(
+            ok_cred = invia_email(
                 email, nome,
                 "Benvenuto in SB Food Academy — Accesso al corso",
                 corpo
             )
+            if not ok_cred:
+                logger.error(
+                    "CREDENZIALI NON INVIATE a %s (%s) — re-inviarle con "
+                    "POST /api/studenti/reset-credenziali", email, prodotto_id)
+
+            avviso = '' if ok_cred else (
+                '<p style="color:#b00"><strong>ATTENZIONE:</strong> invio credenziali '
+                'al cliente FALLITO. Rigenerale con reset-credenziali.</p>')
             invia_email(
                 "info@stefanodemartis.com",
                 "Simone",
-                f"Nuovo acquisto Academy — {nome_completo}",
+                f"Nuovo acquisto Academy — {nome_completo}"
+                + ('' if ok_cred else ' [CREDENZIALI KO]'),
                 f"""<h3>Nuovo acquisto!</h3>
+                {avviso}
                 <p><strong>Cliente:</strong> {nome_completo}</p>
                 <p><strong>Email:</strong> {email}</p>
                 <p><strong>Prodotto:</strong> {prodotto_id}</p>
@@ -239,9 +250,9 @@ def _gestisci_pagamento(session):
                 <a href="https://www.sbfoodconsulting.com/admin.html">
                 Apri gestionale →</a>"""
             )
-            print("Email inviate con successo")
+            logger.info("Email acquisto processate per %s (credenziali ok=%s)", email, ok_cred)
         except Exception as e:
-            print(f"Errore email: {e}")
+            logger.error("Errore invio email acquisto per %s: %s", email, e, exc_info=True)
 
     except Exception as e:
         print(f"Errore _gestisci_pagamento: {e}")
