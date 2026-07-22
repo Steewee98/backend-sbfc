@@ -1,11 +1,20 @@
 import os
+import string
+import secrets
+import logging
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, Studente
 
+logger = logging.getLogger(__name__)
+
 studenti_bp = Blueprint('studenti', __name__)
+
+
+def _genera_password(n=10):
+    return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
 
 
 def admin_required(f):
@@ -70,6 +79,56 @@ def login_studente():
         'nome': studente.nome,
         'moduli': studente.moduli_acquistati or [],
     })
+
+
+@studenti_bp.route('/api/studenti/reset-credenziali', methods=['POST'])
+@admin_required
+def reset_credenziali():
+    """Rigenera la password di uno studente e gli re-invia le credenziali via Resend.
+    Serve quando l'invio automatico al pagamento (Brevo) è fallito: la password
+    originale è hashata e non recuperabile, quindi se ne genera una nuova.
+    Body: {"email":"..."} oppure {"id":2}. Opzionale {"password":"..."} per fissarla.
+    Restituisce anche la password in chiaro (canale admin) come fallback."""
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    sid = data.get('id')
+
+    if sid:
+        studente = Studente.query.get(sid)
+    elif email:
+        studente = Studente.query.filter_by(email=email).first()
+    else:
+        return jsonify({'error': 'Fornire "email" oppure "id"'}), 400
+
+    if not studente:
+        return jsonify({'error': 'Studente non trovato'}), 404
+
+    nuova_password = (data.get('password') or '').strip() or _genera_password()
+    studente.password_hash = generate_password_hash(nuova_password)
+    studente.attivo = True
+    db.session.commit()
+
+    nome = (studente.nome or '').split()[0] if studente.nome else 'Studente'
+    moduli = studente.moduli_acquistati or []
+
+    email_inviata = False
+    if os.environ.get('RESEND_API_KEY'):
+        try:
+            from services.email_service import invia_email_credenziali
+            invia_email_credenziali(nome, studente.email, nuova_password, moduli)
+            email_inviata = True
+        except Exception as e:
+            logger.error('Errore re-invio credenziali a %s: %s', studente.email, e)
+
+    print('[STUDENTI] reset credenziali id=%s email=%s inviata=%s'
+          % (studente.id, studente.email, email_inviata), flush=True)
+
+    return jsonify({
+        'success': True,
+        'studente': studente.to_dict(),
+        'password': nuova_password,
+        'email_inviata': email_inviata,
+    }), 200
 
 
 @studenti_bp.route('/api/studenti/<int:id>', methods=['PATCH'])
