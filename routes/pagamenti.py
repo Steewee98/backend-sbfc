@@ -47,6 +47,15 @@ PRODOTTI = {
         'prezzo': 9490,
         'moduli': [1, 2, 3, 4, 5],
     },
+    # Prodotto PDF a sé (SB Consulting, non Academy): niente moduli/studente,
+    # consegna del file via email dopo il pagamento.
+    'cruscotto-imprenditore': {
+        'nome': "Il Cruscotto dell'Imprenditore — Guida (PDF)",
+        'prezzo': 2500,
+        'moduli': [],
+        'tipo': 'pdf',
+        'download_url': 'https://www.sbfoodconsulting.com/assets/pdf/cruscotto/cruscotto-5982dfb162f67bdb.pdf',
+    },
 }
 
 
@@ -80,6 +89,15 @@ def crea_checkout():
     prodotto = PRODOTTI[prodotto_id]
     frontend_url = os.environ.get('FRONTEND_URL', 'https://www.sbfoodconsulting.com')
 
+    # I prodotti PDF (Cruscotto) tornano alla loro pagina di ringraziamento;
+    # i corsi Academy restano su academy.html.
+    if prodotto.get('tipo') == 'pdf':
+        success_url = f'{frontend_url}/cruscotto-grazie?pagamento=successo'
+        cancel_url = f'{frontend_url}/cruscotto-imprenditore?pagamento=annullato'
+    else:
+        success_url = f'{frontend_url}/academy.html?pagamento=successo&prodotto={prodotto_id}'
+        cancel_url = f'{frontend_url}/academy.html?pagamento=annullato'
+
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -98,8 +116,8 @@ def crea_checkout():
             # Abilita il campo "codice sconto" nel checkout (es. SCHEDE10 -10%).
             # Il coupon/promo code va creato una volta nella dashboard Stripe.
             allow_promotion_codes=True,
-            success_url=f'{frontend_url}/academy.html?pagamento=successo&prodotto={prodotto_id}',
-            cancel_url=f'{frontend_url}/academy.html?pagamento=annullato',
+            success_url=success_url,
+            cancel_url=cancel_url,
             metadata={
                 'prodotto_id': prodotto_id,
                 'moduli': ','.join(map(str, prodotto['moduli'])),
@@ -173,6 +191,20 @@ def _gestisci_pagamento(session):
         print(f"Nome: {nome_completo}")
         print(f"Moduli: {moduli}")
         print(f"Importo: {importo}")
+
+        # Prodotti PDF (Cruscotto): niente studente/moduli — consegna il file via email
+        prodotto_cfg = PRODOTTI.get(prodotto_id, {})
+        if prodotto_cfg.get('tipo') == 'pdf':
+            if not email:
+                print("Email mancante — skip pdf")
+                return
+            pagamento = Pagamento(
+                nome=nome_completo, email=email, prodotto=prodotto_id,
+                importo=importo, stato='completato', stripe_id=session.id)
+            db.session.add(pagamento)
+            db.session.commit()
+            _consegna_pdf(nome, email, prodotto_cfg, importo, session.id)
+            return
 
         if not email or not moduli:
             print("Email o moduli mancanti — skip")
@@ -258,6 +290,40 @@ def _gestisci_pagamento(session):
         print(f"Errore _gestisci_pagamento: {e}")
         import traceback
         traceback.print_exc()
+
+
+def _consegna_pdf(nome, email, prodotto_cfg, importo, stripe_id):
+    """Consegna un prodotto PDF (es. Cruscotto): email col link al cliente + avviso admin."""
+    try:
+        from utils.email import invia_email
+        nome_p = prodotto_cfg.get('nome', 'La tua guida')
+        link = prodotto_cfg.get(
+            'download_url', 'https://www.sbfoodconsulting.com/cruscotto-grazie')
+        corpo = f"""
+        <p>Ciao {nome or ''},</p>
+        <p>grazie per l'acquisto di <strong>{nome_p}</strong>.</p>
+        <p>Scarica la tua guida in PDF da qui:</p>
+        <p><a href="{link}" style="background:#c0552d;color:#fff;padding:12px 22px;
+           border-radius:8px;text-decoration:none;display:inline-block">
+           Scarica la guida (PDF)</a></p>
+        <p style="font-size:13px;color:#666">Se il pulsante non funziona, copia questo
+           indirizzo nel browser:<br>{link}</p>
+        <p>Buon lavoro,<br>SB Consulting</p>
+        """
+        invia_email(email, nome or 'Cliente', f"{nome_p} — la tua guida", corpo)
+
+        invia_email(
+            "info@stefanodemartis.com", "Simone",
+            f"Nuovo acquisto Cruscotto — {email} ({importo}€)",
+            f"""<h3>Nuovo acquisto Cruscotto</h3>
+            <p><strong>Cliente:</strong> {nome or '—'}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Prodotto:</strong> {nome_p}</p>
+            <p><strong>Importo:</strong> {importo}€</p>
+            <p><strong>Stripe:</strong> {stripe_id}</p>""")
+        logger.info("PDF consegnato via email a %s", email)
+    except Exception as e:
+        logger.error("Errore consegna PDF a %s: %s", email, e, exc_info=True)
 
 
 # ─── Admin endpoints ─────────────────────────────────────
