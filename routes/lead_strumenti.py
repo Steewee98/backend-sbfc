@@ -240,27 +240,32 @@ def campagna_preview():
 @lead_strumenti_bp.route('/api/lead-strumenti/campagna', methods=['POST'])
 @admin_required
 def campagna_invia():
-    """Invia la campagna 'Riscopri le schede'.
+    """Invia una campagna ai lead strumenti.
     Body:
       {"mode":"test","to":"tua@email.com"}          -> invia UNA email di prova
       {"mode":"reale","conferma":"INVIA"}           -> invia a TUTTI i destinatari unici
       {"mode":"reale","conferma":"INVIA","limit":10}         -> primi 10 (canary)
       {"mode":"reale","conferma":"INVIA","offset":10}        -> dall'11° in poi (resto)
+    Campagna (opzionale, default "feedback"):
+      {"campagna":"feedback"}  -> "Come ti sei trovato? + -20%"
+      {"campagna":"schede"}    -> "Sono uscite 3 nuove schede + scarica tutte"
     La lista è ordinata in modo deterministico: offset+limit permettono di
     inviare a scaglioni senza doppioni (es. prima limit=10, poi offset=10).
     """
-    from services.email_service import invia_campagna_schede
+    from services.email_service import invia_campagna_schede, invia_campagna_feedback
 
     data = request.get_json(force=True, silent=True) or {}
     mode = (data.get('mode') or '').strip().lower()
+    which = (data.get('campagna') or 'feedback').strip().lower()
+    invia = invia_campagna_feedback if which == 'feedback' else invia_campagna_schede
 
     if mode == 'test':
         to = (data.get('to') or '').strip().lower()
         if not EMAIL_RE.match(to):
             return jsonify({'error': 'Indirizzo di test non valido'}), 400
-        if not invia_campagna_schede([to]):
+        if not invia([to]):
             return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
-        return jsonify({'success': True, 'mode': 'test', 'destinatario': to}), 200
+        return jsonify({'success': True, 'mode': 'test', 'campagna': which, 'destinatario': to}), 200
 
     if mode == 'reale':
         if data.get('conferma') != 'INVIA':
@@ -281,12 +286,12 @@ def campagna_invia():
         if not selezionati:
             return jsonify({'error': 'Nessun destinatario in questo scaglione'}), 400
 
-        if not invia_campagna_schede(selezionati):
+        if not invia(selezionati):
             return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
-        print('[CAMPAGNA-SCHEDE] avviato invio a %s destinatari (offset=%s limit=%s)'
-              % (len(selezionati), offset, limit), flush=True)
+        print('[CAMPAGNA:%s] avviato invio a %s destinatari (offset=%s limit=%s)'
+              % (which, len(selezionati), offset, limit), flush=True)
         return jsonify({
-            'success': True, 'mode': 'reale',
+            'success': True, 'mode': 'reale', 'campagna': which,
             'accodati': len(selezionati),
             'offset': offset, 'limit': limit,
             'totale_lista': len(emails),

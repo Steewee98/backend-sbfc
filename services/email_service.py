@@ -214,3 +214,69 @@ def invia_campagna_schede(destinatari):
         target=_send_campagna_schede, args=(list(destinatari),), daemon=True)
     thread.start()
     return True
+
+
+# ─── Campagna "Feedback + sconto 20%" (broadcast ai lead esistenti) ────
+
+CAMPAGNA_FB_SUBJECT = "Come ti sei trovato con le nostre schede? — SB Food Consulting"
+
+_CAMPAGNA_FB_TEXT = (
+    "Ciao,\n\n"
+    "un po' di tempo fa hai scaricato una delle nostre schede operative.\n"
+    "Ti sono state utili? Le stai usando in cucina o in sala?\n\n"
+    "Rispondi a questa email con due righe: cosa ha funzionato, cosa cambieresti.\n"
+    "Le leggiamo tutte.\n\n"
+    "E se le hai scaricate tutte, per te c'e' un -20% sul percorso SB Food Academy:\n"
+    "codice SCHEDE20 -> percorso completo 75,92 EUR (invece di 94,90), singolo modulo 15,92 EUR.\n"
+    "https://www.sbfoodconsulting.com/academy.html\n\n"
+    "Non le hai ancora tutte? Sono 6 schede (3 nuove), gratis, qui:\n"
+    "https://www.sbfoodconsulting.com/schede\n\n"
+    "---\n"
+    "SB Food Consulting — Roma, Italia — info@sbfoodconsulting.com\n"
+    "Per non ricevere piu' queste email rispondi 'Cancellami'.\n"
+)
+
+
+def _send_campagna_feedback(destinatari):
+    """Invia la email di feedback + sconto 20%, una alla volta con pausa."""
+    resend.api_key = os.environ.get('RESEND_API_KEY')
+    mail_from = os.environ.get('MAIL_FROM', 'SB Food Consulting <onboarding@resend.dev>')
+
+    template_path = os.path.join(TEMPLATES_DIR, 'email_feedback_sconto.html')
+    with open(template_path, 'r', encoding='utf-8') as f:
+        base_html = f.read()
+    html_content = base_html.replace('[UNSUBSCRIBE_URL]', UNSUB_MAILTO)
+
+    inviati, falliti = 0, 0
+    for email in destinatari:
+        try:
+            params: resend.Emails.SendParams = {
+                "from": mail_from,
+                "to": [email],
+                "subject": CAMPAGNA_FB_SUBJECT,
+                "html": html_content,
+                "text": _CAMPAGNA_FB_TEXT,
+                "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+            }
+            res = resend.Emails.send(params)
+            inviati += 1
+            logger.info("Campagna feedback inviata a %s (id: %s)", email, res.get('id'))
+        except Exception as e:
+            falliti += 1
+            logger.error("Errore invio campagna feedback a %s: %s", email, e)
+        time.sleep(0.6)
+
+    logger.info("Campagna feedback completata: %s inviate, %s fallite", inviati, falliti)
+    print("[CAMPAGNA-FEEDBACK] completata: %s inviate, %s fallite" % (inviati, falliti),
+          flush=True)
+
+
+def invia_campagna_feedback(destinatari):
+    """Avvia l'invio della campagna feedback in background."""
+    if not campagna_configurata():
+        logger.warning("RESEND_API_KEY non configurata, campagna feedback non inviata")
+        return False
+    thread = threading.Thread(
+        target=_send_campagna_feedback, args=(list(destinatari),), daemon=True)
+    thread.start()
+    return True
