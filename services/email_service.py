@@ -218,7 +218,7 @@ def invia_campagna_schede(destinatari):
 
 # ─── Campagna "Feedback + sconto 20%" (broadcast ai lead esistenti) ────
 
-CAMPAGNA_FB_SUBJECT = "Il tuo riscontro sulle schede operative — SB Food Consulting"
+CAMPAGNA_FB_SUBJECT = "3 nuove schede gratuite, già online per il tuo locale"
 
 _CAMPAGNA_FB_TEXT = (
     "Buongiorno,\n\n"
