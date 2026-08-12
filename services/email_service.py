@@ -218,22 +218,25 @@ def invia_campagna_schede(destinatari):
 
 # ─── Campagna "Feedback + sconto 20%" (broadcast ai lead esistenti) ────
 
-CAMPAGNA_FB_SUBJECT = "Come ti sei trovato con le nostre schede? — SB Food Consulting"
+CAMPAGNA_FB_SUBJECT = "Il tuo riscontro sulle schede operative — SB Food Consulting"
 
 _CAMPAGNA_FB_TEXT = (
-    "Ciao,\n\n"
-    "un po' di tempo fa hai scaricato una delle nostre schede operative.\n"
-    "Ti sono state utili? Le stai usando in cucina o in sala?\n\n"
-    "Rispondi a questa email con due righe: cosa ha funzionato, cosa cambieresti.\n"
-    "Le leggiamo tutte.\n\n"
-    "E se le hai scaricate tutte, per te c'e' un -20% sul percorso SB Food Academy:\n"
-    "codice SCHEDE20 -> percorso completo 75,92 EUR (invece di 94,90), singolo modulo 15,92 EUR.\n"
+    "Buongiorno,\n\n"
+    "qualche tempo fa ha scaricato una delle schede operative di SB Food Consulting.\n"
+    "Ci farebbe piacere conoscere la Sua opinione: gli strumenti si sono rivelati utili "
+    "nella gestione quotidiana del locale? Puo' rispondere direttamente a questa email.\n\n"
+    "Un vantaggio riservato: se ha gia' scaricato l'intera raccolta di schede, Le riconosciamo "
+    "uno sconto del 20% sulla SB Food Academy, il percorso formativo dedicato alla gestione del ristorante.\n"
+    "Codice SCHEDE20 -> percorso completo 75,92 EUR (anziche' 94,90), singolo modulo 15,92 EUR.\n"
     "https://www.sbfoodconsulting.com/academy.html\n\n"
-    "Non le hai ancora tutte? Sono 6 schede (3 nuove), gratis, qui:\n"
+    "Non dispone ancora dell'intera raccolta? Le schede sono sei (tre di recente pubblicazione), "
+    "tutte gratuite, in un'unica pagina:\n"
     "https://www.sbfoodconsulting.com/schede\n\n"
+    "Grazie per l'attenzione.\n"
+    "SB Food Consulting\n\n"
     "---\n"
     "SB Food Consulting — Roma, Italia — info@sbfoodconsulting.com\n"
-    "Per non ricevere piu' queste email rispondi 'Cancellami'.\n"
+    "Per annullare l'iscrizione rispondi 'Cancellami'.\n"
 )
 
 
