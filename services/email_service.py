@@ -142,20 +142,20 @@ def invia_email_credenziali(nome: str, destinatario: str, password: str, moduli:
 
 # ─── Campagna "Riscopri le schede" (follow-up lead strumenti) ──────────
 
-CAMPAGNA_SUBJECT = "Hai ricevuto la tua Checklist? — SB Food Consulting"
+CAMPAGNA_SUBJECT = "Sono uscite 3 nuove schede gratuite — SB Food Consulting"
 UNSUB_MAILTO = "mailto:info@sbfoodconsulting.com?subject=" + quote(
     "Cancellami dalla lista schede")
 
 _CAMPAGNA_TEXT = (
     "Ciao,\n\n"
-    "grazie per aver scaricato la nostra Checklist di Apertura e Chiusura.\n"
-    "Se il download non e' partito, riscaricala qui:\n"
-    "https://web-production-f3794.up.railway.app/api/strumenti/checklist-apertura-chiusura/pdf\n\n"
-    "Prendi anche le altre schede gratuite:\n"
-    "- Scheda Food Cost: https://web-production-f3794.up.railway.app/api/strumenti/scheda-food-cost/pdf\n"
-    "- Scheda Ricetta: https://web-production-f3794.up.railway.app/api/strumenti/scheda-ricetta/pdf\n\n"
-    "Stanno arrivando altre schede: seguici su Instagram per non perderle\n"
-    "https://www.instagram.com/sbfoodconsulting\n\n"
+    "con le nostre schede operative abbiamo gia' aiutato oltre 150 ristoratori a "
+    "mettere ordine in cucina, in sala e nei numeri.\n\n"
+    "Oggi sono uscite 3 nuove schede gratuite:\n"
+    "- Checklist Pre-Servizio: https://web-production-f3794.up.railway.app/api/strumenti/checklist-pre-servizio/pdf\n"
+    "- Quiz I Numeri del Locale: https://web-production-f3794.up.railway.app/api/strumenti/quiz-numeri/pdf\n"
+    "- Autovalutazione del Team: https://web-production-f3794.up.railway.app/api/strumenti/autovalutazione-team/pdf\n\n"
+    "Scaricale tutte (6 schede) in un'unica pagina:\n"
+    "https://www.sbfoodconsulting.com/schede\n\n"
     "E se vuoi il metodo completo, la SB Food Academy: singolo modulo 17,91 EUR "
     "(invece di 19,90) o percorso completo 85,41 EUR (invece di 94,90) con il codice SCHEDE10.\n"
     "https://www.sbfoodconsulting.com/academy.html\n\n"
