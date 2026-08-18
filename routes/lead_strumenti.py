@@ -162,27 +162,22 @@ def crea_lead():
     logger.info(msg)
 
     # Auto-invio della mail transazionale di ringraziamento + conferma download,
-    # con i codici sconto Cruscotto (CRUSCOTTO15) e Academy (SCHEDE10). La mandiamo
-    # SOLO la prima volta che vediamo questa email: se in seguito la stessa persona
-    # scarica altre schede, non la ri-contattiamo (i codici valgono comunque).
+    # con i codici sconto Cruscotto (CRUSCOTTO15) e Academy (SCHEDE10). Parte a
+    # OGNI download: ogni scheda scaricata riceve la sua conferma personalizzata
+    # (transazionale, non marketing di massa).
     # NB: NON è la campagna "3 nuove schede" (invia_campagna_schede), che è un
     # broadcast di re-engagement da lanciare a mano dall'admin, non un'automazione.
     # L'invio è in background (non blocca la risposta) e non deve mai far fallire
     # il salvataggio del lead, quindi è protetto da try/except.
-    gia_contattato = LeadStrumento.query.filter(
-        LeadStrumento.email == email,
-        LeadStrumento.id != lead.id,
-    ).first() is not None
-    if not gia_contattato:
-        try:
-            from services.email_service import invia_email_grazie_download
-            if invia_email_grazie_download(email, strumento):
-                print('[LEAD-STRUMENTI] auto-invio grazie-download avviato per %s' % email,
-                      flush=True)
-            else:
-                logger.warning('Auto-invio grazie-download saltato (Resend non configurato) per %s', email)
-        except Exception as e:
-            logger.error('Errore auto-invio grazie-download a %s: %s', email, e)
+    try:
+        from services.email_service import invia_email_grazie_download
+        if invia_email_grazie_download(email, strumento):
+            print('[LEAD-STRUMENTI] auto-invio grazie-download avviato per %s (%s)'
+                  % (email, strumento), flush=True)
+        else:
+            logger.warning('Auto-invio grazie-download saltato (Resend non configurato) per %s', email)
+    except Exception as e:
+        logger.error('Errore auto-invio grazie-download a %s: %s', email, e)
 
     return jsonify({'success': True, 'id': lead.id}), 201
 
