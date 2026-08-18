@@ -140,6 +140,89 @@ def invia_email_credenziali(nome: str, destinatario: str, password: str, moduli:
     thread.start()
 
 
+# ─── Email transazionale "Grazie per il download" (auto al primo download) ──
+
+# Nomi leggibili e URL del PDF per ogni slug (coerenti con STRUMENTI_VALIDI).
+NOMI_STRUMENTI = {
+    'checklist-apertura-chiusura': 'Checklist Apertura & Chiusura',
+    'scheda-food-cost': 'Scheda Food Cost',
+    'scheda-ricetta': 'Scheda Ricetta',
+    'checklist-pre-servizio': 'Checklist Pre-Servizio',
+    'quiz-numeri': 'Quiz — I Numeri del Locale',
+    'autovalutazione-team': 'Autovalutazione del Team',
+    'manuale-operativo': 'Manuale Operativo',
+}
+
+GRAZIE_SUBJECT = "La tua scheda è pronta — e due vantaggi riservati (SB Food Consulting)"
+
+_PDF_BASE = "https://www.sbfoodconsulting.com/assets/pdf/risorse"
+
+
+def _grazie_text(nome_scheda, scheda_url):
+    return (
+        "Buongiorno,\n\n"
+        f"grazie per aver scaricato la scheda \"{nome_scheda}\". Il download e' partito nel "
+        f"browser; se ti serve di nuovo, la riscarichi qui:\n{scheda_url}\n\n"
+        "Tutte le schede operative gratuite: https://www.sbfoodconsulting.com/schede\n\n"
+        "Due vantaggi riservati a chi scarica le schede:\n\n"
+        "1) Il Cruscotto dell'Imprenditore al -15%. In meno di 30 minuti al mese "
+        "sai dove guadagni, dove perdi e quale decisione prendere.\n"
+        "   Codice CRUSCOTTO15 -> 21,25 EUR anziche' 25,00 EUR.\n"
+        "   https://www.sbfoodconsulting.com/cruscotto-imprenditore\n\n"
+        "2) SB Food Academy al -10%. Singolo modulo 17,91 EUR (invece di 19,90) "
+        "o percorso completo 85,41 EUR (invece di 94,90).\n"
+        "   Codice SCHEDE10.\n"
+        "   https://www.sbfoodconsulting.com/academy.html\n\n"
+        "Per qualsiasi domanda rispondi pure a questa email.\n"
+        "A presto,\nSB Food Consulting\n\n"
+        "---\n"
+        "SB Food Consulting — Roma, Italia — info@sbfoodconsulting.com\n"
+        "Per non ricevere piu' queste email rispondi 'Cancellami'.\n"
+    )
+
+
+def _send_grazie_download(destinatario, strumento):
+    """Invio della email transazionale di conferma download (thread separato)."""
+    resend.api_key = os.environ.get('RESEND_API_KEY')
+    mail_from = os.environ.get('MAIL_FROM', 'SB Food Consulting <onboarding@resend.dev>')
+
+    nome_scheda = NOMI_STRUMENTI.get(strumento, 'la tua scheda')
+    scheda_url = '%s/%s.pdf' % (_PDF_BASE, strumento)
+
+    template_path = os.path.join(TEMPLATES_DIR, 'email_grazie_download.html')
+    with open(template_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    html_content = html_content.replace('[NOME_SCHEDA]', nome_scheda)
+    html_content = html_content.replace('[SCHEDA_URL]', scheda_url)
+    html_content = html_content.replace('[UNSUBSCRIBE_URL]', UNSUB_MAILTO)
+
+    try:
+        params: resend.Emails.SendParams = {
+            "from": mail_from,
+            "to": [destinatario],
+            "subject": GRAZIE_SUBJECT,
+            "html": html_content,
+            "text": _grazie_text(nome_scheda, scheda_url),
+            "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+        }
+        res = resend.Emails.send(params)
+        logger.info("Email grazie-download inviata a %s (id: %s)", destinatario, res.get('id'))
+    except Exception as e:
+        logger.error("Errore invio email grazie-download a %s: %s", destinatario, e)
+
+
+def invia_email_grazie_download(destinatario, strumento):
+    """Avvia in background la mail di ringraziamento + conferma download con i
+    codici sconto Cruscotto e Academy. Non blocca la risposta HTTP."""
+    if not os.environ.get('RESEND_API_KEY'):
+        logger.warning("RESEND_API_KEY non configurata, email grazie-download non inviata")
+        return False
+    thread = threading.Thread(
+        target=_send_grazie_download, args=(destinatario, strumento), daemon=True)
+    thread.start()
+    return True
+
+
 # ─── Campagna "Riscopri le schede" (follow-up lead strumenti) ──────────
 
 CAMPAGNA_SUBJECT = "Sono uscite 3 nuove schede gratuite — SB Food Consulting"
