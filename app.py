@@ -73,6 +73,7 @@ from routes.prenotazioni import prenotazioni_bp
 from routes.callcenter import callcenter_bp
 from routes.watchdog import watchdog_bp
 from routes.lead_strumenti import lead_strumenti_bp
+from routes.email_stats import email_stats_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -91,6 +92,7 @@ app.register_blueprint(prenotazioni_bp)
 app.register_blueprint(callcenter_bp)
 app.register_blueprint(watchdog_bp)
 app.register_blueprint(lead_strumenti_bp)
+app.register_blueprint(email_stats_bp)
 
 
 # Ensure tables exist

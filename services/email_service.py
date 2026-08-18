@@ -39,6 +39,7 @@ def _send_email(nome: str, destinatario: str):
             "subject": f"Grazie per averci contattato, {nome} \u2014 SB Food Consulting",
             "html": html_content,
             "text": text_content,
+            "tags": [{"name": "categoria", "value": "benvenuto"}],
         }
         email = resend.Emails.send(params)
         logger.info(f"Email benvenuto inviata a {destinatario} (id: {email['id']})")
@@ -117,6 +118,7 @@ def _send_credenziali_email(nome: str, destinatario: str, password: str, moduli:
             "subject": f"Le tue credenziali SB Food Academy - Benvenuto {nome}",
             "html": html_content,
             "text": text_content,
+            "tags": [{"name": "categoria", "value": "credenziali"}],
         }
         email = resend.Emails.send(params)
         logger.info(f"Email credenziali inviata a {destinatario} (id: {email['id']})")
@@ -204,6 +206,7 @@ def _send_grazie_download(destinatario, strumento):
             "html": html_content,
             "text": _grazie_text(nome_scheda, scheda_url),
             "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+            "tags": [{"name": "categoria", "value": "grazie_download"}],
         }
         res = resend.Emails.send(params)
         logger.info("Email grazie-download inviata a %s (id: %s)", destinatario, res.get('id'))
@@ -274,6 +277,7 @@ def _send_campagna_schede(destinatari):
                 "html": html_content,
                 "text": _CAMPAGNA_TEXT,
                 "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+                "tags": [{"name": "categoria", "value": "campagna_schede"}],
             }
             res = resend.Emails.send(params)
             inviati += 1
@@ -346,6 +350,7 @@ def _send_campagna_feedback(destinatari):
                 "html": html_content,
                 "text": _CAMPAGNA_FB_TEXT,
                 "headers": {"List-Unsubscribe": "<%s>" % UNSUB_MAILTO},
+                "tags": [{"name": "categoria", "value": "campagna_feedback"}],
             }
             res = resend.Emails.send(params)
             inviati += 1

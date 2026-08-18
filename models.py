@@ -260,3 +260,42 @@ class LeadStrumento(db.Model):
             'dispositivo': self.dispositivo,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class EmailInvio(db.Model):
+    """Una riga per ogni email inviata via Resend. I timestamp degli eventi
+    (consegna, apertura, click, rimbalzo, reclamo) vengono aggiornati dal
+    webhook Resend (POST /api/webhook/resend). Serve al gestionale per i tassi
+    di consegna/apertura/click."""
+    __tablename__ = 'email_invii'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resend_id = db.Column(db.String(100), unique=True, index=True)  # id restituito da Resend
+    destinatario = db.Column(db.String(200), index=True)
+    subject = db.Column(db.String(300))
+    tipo = db.Column(db.String(50), index=True)  # grazie_download, benvenuto, credenziali, campagna, altro
+    sent_at = db.Column(db.DateTime, index=True)
+    delivered_at = db.Column(db.DateTime)
+    opened_at = db.Column(db.DateTime)      # prima apertura
+    clicked_at = db.Column(db.DateTime)     # primo click
+    bounced_at = db.Column(db.DateTime)
+    complained_at = db.Column(db.DateTime)  # segnalato come spam
+    last_event = db.Column(db.String(40))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'resend_id': self.resend_id,
+            'destinatario': self.destinatario,
+            'subject': self.subject,
+            'tipo': self.tipo,
+            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
+            'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None,
+            'opened_at': self.opened_at.isoformat() if self.opened_at else None,
+            'clicked_at': self.clicked_at.isoformat() if self.clicked_at else None,
+            'bounced_at': self.bounced_at.isoformat() if self.bounced_at else None,
+            'complained_at': self.complained_at.isoformat() if self.complained_at else None,
+            'last_event': self.last_event,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
