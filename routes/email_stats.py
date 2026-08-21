@@ -52,14 +52,27 @@ EVENTO_CAMPO = {
 # Categorizzazione per subject (fallback se i tag non arrivano nel payload)
 def _tipo_da_subject(subject):
     s = (subject or '').lower()
-    if 'la tua scheda è pronta' in s or 'la tua scheda e\' pronta' in s or 'vantaggi riservati' in s:
+    # transazionali cliente
+    if 'scheda è pronta' in s or "scheda e' pronta" in s or 'vantaggi riservati' in s:
         return 'grazie_download'
-    if 'credenziali' in s:
+    if 'benvenuto in sb food academy' in s or 'accesso al corso' in s or 'credenziali sb food academy' in s:
         return 'credenziali'
+    if 'checklist gratuita' in s:
+        return 'lead_checklist'
     if 'grazie per averci contattato' in s:
         return 'benvenuto'
-    if 'nuove schede' in s or 'riscontro' in s:
+    if 'bisogno di un intervento' in s or 'aree critiche' in s or 'basi solide' in s:
+        return 'checklist_esito'
+    if 'la tua guida' in s or 'cruscotto' in s:
+        return 'cruscotto'
+    # campagne broadcast
+    if 'nuove schede' in s or 'riscontro' in s or 'riscopri' in s:
         return 'campagna'
+    # notifiche interne (verso lo staff)
+    if (s.startswith('nuovo acquisto') or s.startswith('nuovo contatto')
+            or s.startswith('nuovo lead') or s.startswith('nuova checklist')
+            or 'watchdog' in s or 'report' in s):
+        return 'notifica_interna'
     return 'altro'
 
 
