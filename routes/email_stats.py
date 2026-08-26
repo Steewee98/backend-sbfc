@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify
 
-from models import db, EmailInvio
+from models import db, EmailInvio, EmailSequenza
 
 logger = logging.getLogger(__name__)
 
@@ -233,3 +233,30 @@ def email_eventi():
         q = q.filter(EmailInvio.tipo == tipo)
     righe = q.order_by(EmailInvio.created_at.desc()).limit(limite).all()
     return jsonify([r.to_dict() for r in righe]), 200
+
+
+@email_stats_bp.route('/api/email/purga', methods=['POST'])
+@admin_required
+def email_purga():
+    """Elimina righe EmailInvio (pulizia rumore di test/anteprime dal gestionale).
+    Body: {"destinatario":"..."} e/o {"tipo_prefix":"anteprima_"}.
+    Se si passa il destinatario, elimina anche l'eventuale sua iscrizione alla
+    sequenza (utile per ripulire gli invii di prova verso la propria casella)."""
+    data = request.get_json(silent=True) or {}
+    dest = (data.get('destinatario') or '').strip().lower()
+    prefix = (data.get('tipo_prefix') or '').strip()
+    if not dest and not prefix:
+        return jsonify({'error': 'specifica destinatario o tipo_prefix'}), 400
+
+    q = EmailInvio.query
+    if dest:
+        q = q.filter(EmailInvio.destinatario == dest)
+    if prefix:
+        q = q.filter(EmailInvio.tipo.like(prefix + '%'))
+    n = q.delete(synchronize_session=False)
+
+    seq_del = 0
+    if dest:
+        seq_del = EmailSequenza.query.filter_by(email=dest).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({'success': True, 'eliminate_email': n, 'eliminate_sequenze': seq_del}), 200

@@ -48,17 +48,20 @@ def admin_required(f):
 
 # ─── Iscrizione ────────────────────────────────────────────────────────
 
-def enrolla_sequenza(email, segmento='numeri', ritardo_giorni=CADENZA_GIORNI):
+def enrolla_sequenza(email, segmento='numeri', ritardo_giorni=CADENZA_GIORNI, prossimo_at=None):
     """Iscrive un'email alla sequenza se non è già presente (una sola volta per
-    persona). Ritorna la sequenza creata, oppure None se già iscritta / email vuota."""
+    persona). Ritorna la sequenza creata, oppure None se già iscritta / email vuota.
+    prossimo_at (datetime UTC naive) fissa un orario esatto per la prima email;
+    altrimenti usa adesso + ritardo_giorni."""
     email = (email or '').lower().strip()
     if not email or '@' not in email:
         return None
     if EmailSequenza.query.filter_by(email=email).first():
         return None  # già iscritta → NON ri-iscrivere (niente doppioni)
+    quando = prossimo_at or (datetime.utcnow() + timedelta(days=ritardo_giorni))
     seq = EmailSequenza(
         email=email, segmento=segmento or 'numeri', step=0, stato='attiva',
-        prossimo_invio_at=datetime.utcnow() + timedelta(days=ritardo_giorni))
+        prossimo_invio_at=quando)
     db.session.add(seq)
     db.session.commit()
     return seq
@@ -209,6 +212,15 @@ def api_enrolla_backlog():
     quando = (data.get('quando') or 'settimana').strip().lower()
     ritardo = 0 if quando == 'subito' else CADENZA_GIORNI
 
+    # prossimo_at: orario esatto (ISO, UTC) per la prima email — ha priorità su 'quando'
+    prossimo_at = None
+    if data.get('prossimo_at'):
+        try:
+            prossimo_at = datetime.fromisoformat(
+                str(data['prossimo_at']).replace('Z', '')).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'prossimo_at non valido (usa ISO, es. 2026-08-27T05:30:00)'}), 400
+
     # email uniche con consenso, ordinate (deterministico), non già iscritte
     rows = (db.session.query(LeadStrumento.email)
             .filter(LeadStrumento.consenso_marketing.is_(True))
@@ -220,11 +232,13 @@ def api_enrolla_backlog():
 
     creati = 0
     for email in selezionati:
-        if enrolla_sequenza(email, segmento='numeri', ritardo_giorni=ritardo):
+        if enrolla_sequenza(email, segmento='numeri',
+                            ritardo_giorni=ritardo, prossimo_at=prossimo_at):
             creati += 1
     return jsonify({
         'success': True, 'iscritti': creati,
-        'quando': quando, 'residui_non_iscritti': max(len(candidate) - offset - creati, 0),
+        'quando': prossimo_at.isoformat() if prossimo_at else quando,
+        'residui_non_iscritti': max(len(candidate) - offset - creati, 0),
         'gia_iscritti_totali': len(gia) + creati,
     }), 200
 

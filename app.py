@@ -207,17 +207,17 @@ def _background_watchdog():
 
 
 # --- Background scheduler sequenza nurture (email a settimana) ---
-SEQUENZE_INTERVAL = int(os.environ.get('SEQUENZE_INTERVAL', 21600))  # 6h
+SEQUENZE_INTERVAL = int(os.environ.get('SEQUENZE_INTERVAL', 600))  # 10 min
 
 def _background_sequenze():
-    """Invia le email nurture dovute. Gira ogni 6h ma spedisce solo in fascia
-    diurna italiana (8–20 locali ~ 7–18 UTC) per non mandare email di notte."""
+    """Invia le email nurture dovute. Gira ogni 10 min ma spedisce solo in fascia
+    diurna italiana (07–22 locali ~ 05–20 UTC) per non mandare email di notte."""
     time.sleep(90)  # attendi avvio app
     while True:
         try:
             with app.app_context():
                 ora = datetime.utcnow().hour
-                if 7 <= ora <= 18:
+                if 5 <= ora <= 20:
                     from routes.sequenze import processa_sequenze
                     r = processa_sequenze()
                     if r.get('inviate') or r.get('completate'):
