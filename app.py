@@ -2,6 +2,7 @@ import os
 import traceback
 import threading
 import time
+from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -74,6 +75,7 @@ from routes.callcenter import callcenter_bp
 from routes.watchdog import watchdog_bp
 from routes.lead_strumenti import lead_strumenti_bp
 from routes.email_stats import email_stats_bp
+from routes.sequenze import sequenze_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -93,6 +95,7 @@ app.register_blueprint(callcenter_bp)
 app.register_blueprint(watchdog_bp)
 app.register_blueprint(lead_strumenti_bp)
 app.register_blueprint(email_stats_bp)
+app.register_blueprint(sequenze_bp)
 
 
 # Ensure tables exist
@@ -203,6 +206,27 @@ def _background_watchdog():
         time.sleep(WATCHDOG_INTERVAL)
 
 
+# --- Background scheduler sequenza nurture (email a settimana) ---
+SEQUENZE_INTERVAL = int(os.environ.get('SEQUENZE_INTERVAL', 21600))  # 6h
+
+def _background_sequenze():
+    """Invia le email nurture dovute. Gira ogni 6h ma spedisce solo in fascia
+    diurna italiana (8–20 locali ~ 7–18 UTC) per non mandare email di notte."""
+    time.sleep(90)  # attendi avvio app
+    while True:
+        try:
+            with app.app_context():
+                ora = datetime.utcnow().hour
+                if 7 <= ora <= 18:
+                    from routes.sequenze import processa_sequenze
+                    r = processa_sequenze()
+                    if r.get('inviate') or r.get('completate'):
+                        print(f"[SEQUENZE] inviate {r['inviate']}, completate {r['completate']}")
+        except Exception as e:
+            print(f"[SEQUENZE] Errore: {e}")
+        time.sleep(SEQUENZE_INTERVAL)
+
+
 # Avvia solo in produzione (gunicorn) e solo una volta per processo
 _bg_started = False
 if not app.debug or os.environ.get('FORCE_SYNC'):
@@ -219,6 +243,10 @@ if not app.debug or os.environ.get('FORCE_SYNC'):
         _watchdog_thread = threading.Thread(target=_background_watchdog, daemon=True)
         _watchdog_thread.start()
         print(f"[WATCHDOG] Avviato — controlla ogni {WATCHDOG_INTERVAL}s")
+
+        _sequenze_thread = threading.Thread(target=_background_sequenze, daemon=True)
+        _sequenze_thread.start()
+        print(f"[SEQUENZE] Avviato — controlla ogni {SEQUENZE_INTERVAL}s")
 
 
 if __name__ == '__main__':

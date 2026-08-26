@@ -299,3 +299,37 @@ class EmailInvio(db.Model):
             'last_event': self.last_event,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class EmailSequenza(db.Model):
+    """Iscrizione di un lead alla sequenza nurture automatica (una email a settimana).
+    L'iscrizione è per PERSONA (email unica), non per download: un lead entra una
+    sola volta e non viene mai re-iscritto (niente email doppie).
+
+    step = numero di email nurture già inviate (0..6). Quando step raggiunge 6 la
+    sequenza diventa 'completata'. prossimo_invio_at indica quando è dovuta la
+    prossima email; il processore giornaliero invia le sequenze con data <= adesso
+    e sposta la data avanti di 7 giorni."""
+    __tablename__ = 'email_sequenze'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(200), nullable=False, unique=True, index=True)
+    segmento = db.Column(db.String(30), default='numeri')  # numeri | sistema | lancio
+    step = db.Column(db.Integer, default=0)                # email già inviate (0..6)
+    stato = db.Column(db.String(20), default='attiva', index=True)  # attiva|completata|disiscritta|sospesa
+    prossimo_invio_at = db.Column(db.DateTime, index=True)
+    last_sent_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'segmento': self.segmento,
+            'step': self.step,
+            'stato': self.stato,
+            'prossimo_invio_at': self.prossimo_invio_at.isoformat() if self.prossimo_invio_at else None,
+            'last_sent_at': self.last_sent_at.isoformat() if self.last_sent_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

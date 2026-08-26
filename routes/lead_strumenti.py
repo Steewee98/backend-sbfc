@@ -179,6 +179,24 @@ def crea_lead():
     except Exception as e:
         logger.error('Errore auto-invio grazie-download a %s: %s', email, e)
 
+    # Iscrizione alla sequenza nurture (una email a settimana). L'iscrizione è per
+    # PERSONA: se questa email è già in sequenza (altra scheda scaricata prima) NON
+    # viene re-iscritta → niente email doppie. Prima nurture dopo 7 giorni.
+    try:
+        from routes.sequenze import enrolla_sequenza
+        _SEG = {
+            'scheda-food-cost': 'numeri', 'quiz-numeri': 'numeri',
+            'checklist-apertura-chiusura': 'sistema', 'manuale-operativo': 'sistema',
+            'checklist-pre-servizio': 'sistema', 'autovalutazione-team': 'sistema',
+            'scheda-ricetta': 'lancio',
+        }
+        seq = enrolla_sequenza(email, segmento=_SEG.get(strumento, 'numeri'))
+        if seq:
+            print('[SEQUENZE] lead %s iscritto alla nurture (seg=%s)'
+                  % (email, seq.segmento), flush=True)
+    except Exception as e:
+        logger.error('Errore iscrizione sequenza per %s: %s', email, e)
+
     return jsonify({'success': True, 'id': lead.id}), 201
 
 
