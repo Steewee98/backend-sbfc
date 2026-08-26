@@ -229,6 +229,34 @@ def api_enrolla_backlog():
     }), 200
 
 
+@sequenze_bp.route('/api/sequenze/iscrivi', methods=['POST'])
+@admin_required
+def api_iscrivi():
+    """Iscrive (o re-imposta) manualmente un'email alla sequenza. Utile per aggiunte
+    a mano e per test. Body: {"email","quando":"subito|settimana","segmento","reset":bool}.
+    'subito' rende la prima email dovuta al prossimo giro del processore."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if '@' not in email or len(email) > 200:
+        return jsonify({'error': 'email non valida'}), 400
+    quando = (data.get('quando') or 'settimana').strip().lower()
+    ritardo = 0 if quando == 'subito' else CADENZA_GIORNI
+    seg = (data.get('segmento') or 'numeri').strip().lower()
+
+    seq = EmailSequenza.query.filter_by(email=email).first()
+    if seq:
+        if data.get('reset'):
+            seq.step = 0
+        seq.stato = 'attiva'
+        seq.segmento = seg
+        seq.prossimo_invio_at = datetime.utcnow() + timedelta(days=ritardo)
+        db.session.commit()
+        return jsonify({'success': True, 'email': email, 'nuova': False, 'step': seq.step}), 200
+
+    enrolla_sequenza(email, segmento=seg, ritardo_giorni=ritardo)
+    return jsonify({'success': True, 'email': email, 'nuova': True, 'step': 0}), 201
+
+
 @sequenze_bp.route('/api/sequenze/disiscrivi', methods=['POST'])
 @admin_required
 def api_disiscrivi():
