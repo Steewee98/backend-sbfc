@@ -1,4 +1,5 @@
 import os
+import time
 import string
 import secrets
 import logging
@@ -15,6 +16,23 @@ studenti_bp = Blueprint('studenti', __name__)
 
 def _genera_password(n=10):
     return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
+
+
+# Rate limit in-memory per il recupero password (per IP): max 5 richieste/ora.
+_RECUPERO_HITS = {}
+_RECUPERO_WINDOW = 3600
+_RECUPERO_MAX = 5
+
+
+def _recupero_ok(key):
+    now = time.time()
+    hits = [t for t in _RECUPERO_HITS.get(key, []) if now - t < _RECUPERO_WINDOW]
+    if len(hits) >= _RECUPERO_MAX:
+        _RECUPERO_HITS[key] = hits
+        return False
+    hits.append(now)
+    _RECUPERO_HITS[key] = hits
+    return True
 
 
 def admin_required(f):
@@ -79,6 +97,50 @@ def login_studente():
         'nome': studente.nome,
         'moduli': studente.moduli_acquistati or [],
     })
+
+
+@studenti_bp.route('/api/studenti/recupera-password', methods=['POST'])
+def recupera_password():
+    """Recupero password self-service dello studente (login Academy → "Password
+    dimenticata?"). Genera una nuova password e la invia via email allo studente.
+    - Anti-enumeration: la risposta è identica sia che l'email esista o no.
+    - Rate-limited per IP (5/ora) per evitare abusi.
+    - La password NON viene mai restituita nella risposta: solo via email."""
+    ip = (request.headers.get('X-Forwarded-For', request.remote_addr) or 'x').split(',')[0].strip()
+    if not _recupero_ok(ip):
+        return jsonify({'error': 'Troppe richieste, riprova tra qualche minuto.'}), 429
+
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email or len(email) > 200:
+        return jsonify({'error': 'Inserisci un indirizzo email valido.'}), 400
+
+    studente = Studente.query.filter_by(email=email).first()
+    if studente:
+        nuova_password = _genera_password()
+        studente.password_hash = generate_password_hash(nuova_password)
+        studente.attivo = True
+        db.session.commit()
+        nome = (studente.nome or '').split()[0] if studente.nome else 'Studente'
+        moduli = studente.moduli_acquistati or []
+        if os.environ.get('RESEND_API_KEY'):
+            try:
+                from services.email_service import invia_email_credenziali
+                invia_email_credenziali(nome, studente.email, nuova_password, moduli)
+            except Exception as e:
+                logger.error('Errore invio recupero password a %s: %s', email, e)
+        print('[STUDENTI] recupero password per %s (studente trovato, nuova pwd inviata)'
+              % email, flush=True)
+    else:
+        print('[STUDENTI] recupero password per %s (nessuno studente con questa email)'
+              % email, flush=True)
+
+    # Risposta generica identica in entrambi i casi (anti-enumeration)
+    return jsonify({
+        'success': True,
+        'message': 'Se l’indirizzo è registrato, riceverai a breve una nuova '
+                   'password via email. Controlla anche lo spam.',
+    }), 200
 
 
 @studenti_bp.route('/api/studenti/reset-credenziali', methods=['POST'])
