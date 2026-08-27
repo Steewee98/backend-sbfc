@@ -207,3 +207,17 @@ def aggiorna_studente(id):
 
     db.session.commit()
     return jsonify(studente.to_dict())
+
+
+@studenti_bp.route('/api/studenti/<int:id>', methods=['DELETE'])
+@admin_required
+def elimina_studente(id):
+    """Elimina definitivamente uno studente (es. profili demo/test)."""
+    studente = Studente.query.get(id)
+    if not studente:
+        return jsonify({'error': 'Studente non trovato'}), 404
+    email = studente.email
+    db.session.delete(studente)
+    db.session.commit()
+    print('[STUDENTI] eliminato id=%s email=%s' % (id, email), flush=True)
+    return jsonify({'success': True, 'id': id, 'email': email}), 200
