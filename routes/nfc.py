@@ -16,7 +16,7 @@ from functools import wraps
 
 import stripe
 from flask import Blueprint, request, jsonify, Response
-from models import db, OrdineNfc, Pagamento
+from models import db, OrdineNfc, RichiestaNfc, Pagamento
 
 logger = logging.getLogger(__name__)
 nfc_bp = Blueprint('nfc', __name__)
@@ -402,6 +402,85 @@ def menu_pubblico(slug):
 def logo_pubblico(slug):
     ordine = OrdineNfc.query.filter_by(slug=slug).first_or_404()
     return _servi_allegato(ordine, 'logo')
+
+
+# ─── 3-bis. Richieste specifiche (box in fondo allo shop) ─
+
+@nfc_bp.route('/api/nfc/richiesta', methods=['POST'])
+def crea_richiesta():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()[:200]
+    messaggio = (data.get('messaggio') or '').strip()[:4000]
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+        return jsonify({'error': 'Inserisci una email valida'}), 400
+    if len(messaggio) < 10:
+        return jsonify({'error': 'Scrivi due righe su cosa ti serve'}), 400
+
+    r = RichiestaNfc(
+        nome=(data.get('nome') or '').strip()[:200],
+        nome_locale=(data.get('nome_locale') or '').strip()[:200],
+        email=email,
+        telefono=(data.get('telefono') or '').strip()[:50],
+        quantita=(data.get('quantita') or '').strip()[:50],
+        messaggio=messaggio,
+    )
+    db.session.add(r)
+    db.session.commit()
+
+    try:
+        from utils.email import invia_email
+        invia_email(email, r.nome or 'Ciao',
+                    'Abbiamo ricevuto la tua richiesta — Placca NFC',
+                    f"""<p>Ciao {r.nome or ''},</p>
+                    <p>abbiamo ricevuto la tua richiesta sulla Placca NFC e ti rispondiamo
+                    entro un giorno lavorativo, a questo indirizzo{' o al ' + r.telefono if r.telefono else ''}.</p>
+                    <div style="background:#f5f2ee;padding:14px 18px;border-left:3px solid #c4622d;margin:18px 0">
+                      {r.messaggio}
+                    </div>
+                    <p>A presto,<br>SB Food Consulting</p>""")
+        invia_email(ADMIN_EMAIL, 'Simone',
+                    f'Richiesta Placca NFC — {r.nome_locale or r.email}',
+                    f"""<h3>Nuova richiesta dallo shop Placca NFC</h3>
+                    {_riga('Nome', r.nome)}{_riga('Locale', r.nome_locale)}
+                    {_riga('Email', r.email)}{_riga('Telefono', r.telefono)}
+                    {_riga('Quantità', r.quantita)}
+                    <p><strong>Messaggio:</strong><br>{r.messaggio}</p>
+                    <p><a href="{FRONTEND_URL}/admin.html">Apri gestionale → Placche NFC → Richieste</a></p>""")
+    except Exception as e:
+        logger.error('Email richiesta NFC %s: %s', r.id, e, exc_info=True)
+
+    return jsonify({'ok': True, 'id': r.id})
+
+
+@nfc_bp.route('/api/nfc/richieste', methods=['GET'])
+@admin_required
+def lista_richieste():
+    q = RichiestaNfc.query
+    stato = request.args.get('stato')
+    if stato:
+        q = q.filter_by(stato=stato)
+    return jsonify([r.to_dict() for r in q.order_by(RichiestaNfc.created_at.desc()).all()])
+
+
+@nfc_bp.route('/api/nfc/richieste/<int:rid>', methods=['PATCH'])
+@admin_required
+def aggiorna_richiesta(rid):
+    r = RichiestaNfc.query.get_or_404(rid)
+    data = request.get_json() or {}
+    for k in ('stato', 'note_interne'):
+        if k in data:
+            setattr(r, k, data[k])
+    db.session.commit()
+    return jsonify(r.to_dict())
+
+
+@nfc_bp.route('/api/nfc/richieste/<int:rid>', methods=['DELETE'])
+@admin_required
+def elimina_richiesta(rid):
+    r = RichiestaNfc.query.get_or_404(rid)
+    db.session.delete(r)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ─── 4. Admin ─────────────────────────────────────────────

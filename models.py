@@ -397,3 +397,33 @@ class OrdineNfc(db.Model):
         if con_allegati:
             d['allegati'] = alle
         return d
+
+
+class RichiestaNfc(db.Model):
+    """Richiesta specifica dal box in fondo allo shop Placca NFC.
+
+    Non è un ordine: è una domanda o un'esigenza fuori dai tre tier
+    (grandi quantità, formati diversi, dubbi sulla grafica...). Arriva
+    senza pagamento e va lavorata a mano dal gestionale.
+    """
+    __tablename__ = 'richieste_nfc'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(200))
+    nome_locale = db.Column(db.String(200))
+    email = db.Column(db.String(200), nullable=False)
+    telefono = db.Column(db.String(50))
+    quantita = db.Column(db.String(50))
+    messaggio = db.Column(db.Text, nullable=False)
+    stato = db.Column(db.String(20), default='nuova')  # nuova · in_corso · chiusa
+    note_interne = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'nome': self.nome, 'nome_locale': self.nome_locale,
+            'email': self.email, 'telefono': self.telefono, 'quantita': self.quantita,
+            'messaggio': self.messaggio, 'stato': self.stato,
+            'note_interne': self.note_interne,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
