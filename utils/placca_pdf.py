@@ -1,171 +1,306 @@
-"""Genera il PDF di stampa della Placca NFC (A6 105x148 mm + 3 mm di abbondanza).
+"""PDF di stampa della Placca NFC — A6 (105×148 mm) + 3 mm di abbondanza.
 
-Il file è pensato per il tipografo: formato esatto, fondo al vivo, nessun
-segno di taglio da rimuovere a mano. Per la versione Base riproduce la
-grafica SB Food (chiara o scura); per le personalizzate usa i colori, il
-testo, il logo e la foto scelti dal cliente.
+Disegnato con ReportLab (vettoriale, font incorporati): WeasyPrint sul server
+non ha le librerie di sistema Nix, mentre ReportLab gira già per le ricevute.
+
+Versione Base: grafica SB Food, chiara o scura, con la texture di fondo.
+Versioni personalizzate: colori, testo, logo e foto scelti dal cliente.
 """
-import base64
+import io
+import os
+import math
 import logging
+
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
+from reportlab.lib.colors import HexColor, Color
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 logger = logging.getLogger(__name__)
 
-FRONTEND = 'https://www.sbfoodconsulting.com'
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FONT_DIR = os.path.join(BASE_DIR, 'assets', 'fonts')
+BG_DIR = os.path.join(BASE_DIR, 'assets', 'placche')
 
-ICONA_TAP = '''<svg viewBox="0 0 100 92" fill="none" stroke="currentColor" stroke-width="4"
-  stroke-linecap="round" stroke-linejoin="round">
-  <rect x="20" y="24" width="42" height="60" rx="8"/>
-  <line x1="34" y1="32" x2="48" y2="32"/>
-  <circle cx="41" cy="78" r="2.6" fill="currentColor" stroke="none"/>
-  <path d="M64.8 22.4 A 9 9 0 0 1 68.3 33.4"/>
-  <path d="M69.0 15.6 A 17 17 0 0 1 75.8 36.4"/>
-  <path d="M73.3 8.8 A 25 25 0 0 1 83.2 39.4"/>
-</svg>'''
+W, H = 105 * mm, 148 * mm          # formato finito
+BLEED = 3 * mm                      # abbondanza per il taglio
+PW, PH = W + 2 * BLEED, H + 2 * BLEED
 
-PORTALI = {
-    'google': '''<svg class="p-google" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2.6" stroke-linecap="round"><path d="M21 12 A9 9 0 1 1 18.2 5.6"/>
-        <path d="M21 12 L12.4 12"/></svg>''',
-    'tripadvisor': '''<svg class="p-trip" viewBox="0 0 44 26" fill="none" stroke="currentColor" stroke-width="2.4">
-        <circle cx="13" cy="13" r="8.5"/><circle cx="31" cy="13" r="8.5"/>
-        <circle cx="13" cy="13" r="2.8" fill="currentColor" stroke="none"/>
-        <circle cx="31" cy="13" r="2.8" fill="currentColor" stroke="none"/>
-        <path d="M18.5 19 L22 22.5 L25.5 19" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M6 6 C9 3 12 3 14 5" stroke-linecap="round"/>
-        <path d="M38 6 C35 3 32 3 30 5" stroke-linecap="round"/></svg>''',
-    'thefork': '''<svg class="p-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M8 3 V9"/><path d="M12 3 V9"/><path d="M16 3 V9"/>
-        <path d="M8 9 C8 13 16 13 16 9"/><path d="M12 9 V21"/></svg>''',
-}
+SERIF, SERIF_IT, SANS = 'PlaccaSerif', 'PlaccaSerifIt', 'PlaccaSans'
+_font_ok = None
+
+
+def _registra_font():
+    global _font_ok
+    if _font_ok is not None:
+        return _font_ok
+    try:
+        pdfmetrics.registerFont(TTFont(SERIF, os.path.join(FONT_DIR, 'Playfair-SemiBold.ttf')))
+        pdfmetrics.registerFont(TTFont(SERIF_IT, os.path.join(FONT_DIR, 'Playfair-Italic.ttf')))
+        pdfmetrics.registerFont(TTFont(SANS, os.path.join(FONT_DIR, 'Inter-SemiBold.ttf')))
+        _font_ok = True
+    except Exception as e:
+        logger.warning('Font della placca non caricati (%s): uso i font base', e)
+        _font_ok = False
+    return _font_ok
+
+
+def _f(serif=True, italic=False):
+    """Nome del font da usare, con ripiego sui font standard del PDF."""
+    if _registra_font():
+        return SERIF_IT if italic else (SERIF if serif else SANS)
+    if not serif:
+        return 'Helvetica-Bold'
+    return 'Times-Italic' if italic else 'Times-Bold'
 
 
 def _luminanza(hex_col):
     try:
-        h = hex_col.lstrip('#')
+        h = (hex_col or '').lstrip('#')
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
         return (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except Exception:
         return 0.0
 
 
-def _data_uri(allegato):
+def _colore(hex_col, default='#2b2d31'):
+    try:
+        return HexColor(hex_col)
+    except Exception:
+        return HexColor(default)
+
+
+def _immagine_da_allegato(allegato):
+    import base64
     if not allegato or not allegato.get('dati'):
         return None
-    return f"data:{allegato.get('mime', 'image/png')};base64,{allegato['dati']}"
+    try:
+        return ImageReader(io.BytesIO(base64.b64decode(allegato['dati'])))
+    except Exception as e:
+        logger.warning('Allegato non leggibile per il PDF: %s', e)
+        return None
 
 
-def _esc(t):
-    return (str(t or '').replace('&', '&amp;').replace('<', '&lt;')
-            .replace('>', '&gt;').replace('"', '&quot;'))
-
-
-def costruisci_html(ordine):
-    base = ordine.tier == 'base'
-    alle = ordine.allegati or {}
-
-    if base:
-        chiara = (ordine.variante or 'scura') == 'chiara'
-        sfondo = '#f5f2ee' if chiara else '#2b2d31'
-        inchiostro = '#2b2d31' if chiara else '#f5f2ee'
-        accento = '#c4622d'
-        texture = f"{FRONTEND}/assets/nfc/print/bg-{'chiara' if chiara else 'scura'}.jpg"
-        velo = ('linear-gradient(180deg, rgba(249,246,241,.28) 0%, rgba(243,238,231,.45) 100%)'
-                if chiara else
-                'linear-gradient(180deg, rgba(43,45,49,.55) 0%, rgba(43,45,49,.72) 100%)')
-        fondo_css = f"background: {velo}, url('{texture}') center/cover no-repeat, {sfondo};"
-        titolo = 'Avvicina il telefono per lasciare una recensione'
-        nome_sotto = 'SB Food Consulting'
-        logo_uri = None
-        portali_attivi = ['google', 'tripadvisor', 'thefork']
-    else:
-        sfondo = ordine.colore_sfondo or '#2b2d31'
-        accento = ordine.colore_primario or '#c4622d'
-        inchiostro = '#2b2d31' if _luminanza(sfondo) > 0.6 else '#f5f2ee'
-        foto_uri = _data_uri(alle.get('foto'))
-        if foto_uri:
-            velo = f'linear-gradient({sfondo}cc, {sfondo}cc)'
-            fondo_css = f"background: {velo}, url('{foto_uri}') center/cover no-repeat, {sfondo};"
+def _testo_centrato(c, testo, y, font, size, colore, leading=None, larghezza=80 * mm):
+    """Scrive righe centrate mandando a capo sulla larghezza data. Ritorna la y finale."""
+    c.setFont(font, size)
+    c.setFillColor(colore)
+    leading = leading or size * 1.22
+    parole, righe, riga = testo.split(), [], ''
+    for p in parole:
+        prova = (riga + ' ' + p).strip()
+        if c.stringWidth(prova, font, size) <= larghezza:
+            riga = prova
         else:
-            fondo_css = f'background: {sfondo};'
-        titolo = ordine.testo_placca or 'Avvicina il telefono per lasciare una recensione'
-        nome_sotto = ordine.nome_locale
-        logo_uri = _data_uri(alle.get('logo'))
-        portali_attivi = [t for t, u in (('google', ordine.link_google),
-                                         ('tripadvisor', ordine.link_tripadvisor),
-                                         ('thefork', ordine.link_thefork)) if u]
-        if not portali_attivi:
-            portali_attivi = ['google']
+            if riga:
+                righe.append(riga)
+            riga = p
+    if riga:
+        righe.append(riga)
+    for r in righe:
+        c.drawCentredString(PW / 2, y, r)
+        y -= leading
+    return y + leading
 
-    portali_html = ''.join(PORTALI[p] for p in portali_attivi)
-    logo_html = f'<img class="logo" src="{logo_uri}">' if logo_uri else ''
-    menu_html = ('<div class="menu-badge">Men&ugrave; digitale</div>'
-                 if ordine.tier == 'personalizzata-menu' else '')
 
-    return f'''<!DOCTYPE html>
-<html lang="it"><head><meta charset="UTF-8">
-<style>
-  @page {{ size: 111mm 154mm; margin: 0; }}
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
-          -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-  .placca {{ position: relative; width: 111mm; height: 154mm;
-             color: {inchiostro}; overflow: hidden; {fondo_css} }}
-  /* area di sicurezza: 3 mm di abbondanza su ogni lato */
-  .frame {{ position: absolute; top: 10mm; left: 9.5mm; right: 9.5mm; bottom: 9.5mm;
-            border: 0.5pt solid {accento}; }}
-  .safe {{ position: absolute; top: 3mm; left: 3mm; width: 105mm; height: 148mm;
-           padding: 14mm 12mm 13mm; display: flex; flex-direction: column;
-           align-items: center; justify-content: space-between; text-align: center; }}
-  .welcome {{ font-style: italic; font-size: 10.5pt; opacity: .8; }}
-  .middle {{ flex: 1; display: flex; flex-direction: column;
-             align-items: center; justify-content: center; }}
-  .tapicon {{ width: 24mm; color: {accento}; }}
-  .tapicon svg {{ display: block; width: 100%; height: auto; }}
-  .taphere {{ font-family: Helvetica, Arial, sans-serif; font-weight: 600; font-size: 5pt;
-              letter-spacing: 2pt; text-transform: uppercase; color: {accento};
-              margin-top: 2.5mm; }}
-  .headline {{ font-weight: 600; font-size: 22pt; line-height: 1.2;
-               margin-top: 9mm; max-width: 80mm; }}
-  .thanks {{ font-style: italic; font-size: 12.5pt; color: {accento}; margin-top: 10mm; }}
-  .brand {{ display: flex; flex-direction: column; align-items: center; }}
-  .logo {{ max-height: 14mm; max-width: 45mm; margin-bottom: 4mm; }}
-  .portals {{ color: {accento}; margin-bottom: 3.5mm; }}
-  .portals svg {{ display: inline-block; vertical-align: middle; margin: 0 3mm; }}
-  .p-google {{ height: 6.2mm; }} .p-trip {{ height: 5mm; }} .p-fork {{ height: 6.8mm; }}
-  .menu-badge {{ font-family: Helvetica, Arial, sans-serif; font-size: 5pt;
-                 letter-spacing: 1.6pt; text-transform: uppercase; color: {accento};
-                 border: 0.5pt solid {accento}; padding: 1mm 2.5mm; margin-bottom: 3.5mm; }}
-  .name {{ font-family: Helvetica, Arial, sans-serif; font-size: 7pt;
-           letter-spacing: 2.4pt; text-transform: uppercase; opacity: .85; }}
-</style></head>
-<body>
-  <div class="placca">
-    <div class="frame"></div>
-    <div class="safe">
-      <div class="welcome">&Egrave; stato un piacere averti con noi</div>
-      <div class="middle">
-        <div class="tapicon">{ICONA_TAP}</div>
-        <div class="taphere">Appoggia qui</div>
-        <div class="headline">{_esc(titolo)}</div>
-        <div class="thanks">Grazie per il tuo feedback!</div>
-      </div>
-      <div class="brand">
-        {logo_html}
-        <div class="portals">{portali_html}</div>
-        {menu_html}
-        <div class="name">{_esc(nome_sotto)}</div>
-      </div>
-    </div>
-  </div>
-</body></html>'''
+def _icona_tap(c, cx, cy, larghezza, colore):
+    """Telefono con le onde NFC, in vettoriale."""
+    s = larghezza / 100.0          # il disegno originale è su una griglia 100×92
+    c.saveState()
+    c.setStrokeColor(colore)
+    c.setFillColor(colore)
+    c.setLineWidth(4 * s)
+    c.setLineCap(1)
+    c.setLineJoin(1)
+    x0 = cx - larghezza / 2
+    y0 = cy - (92 * s) / 2
+
+    def px(x, y):                  # dal sistema SVG (y in giù) a quello PDF (y in su)
+        return x0 + x * s, y0 + (92 - y) * s
+
+    bx, by = px(20, 84)
+    c.roundRect(bx, by, 42 * s, 60 * s, 8 * s, stroke=1, fill=0)
+    ax, ay = px(34, 32); bx2, by2 = px(48, 32)
+    c.line(ax, ay, bx2, by2)
+    hx, hy = px(41, 78)
+    c.circle(hx, hy, 2.6 * s, stroke=0, fill=1)
+
+    ox, oy = px(62, 28)            # centro delle onde: angolo alto-destra del telefono
+    for raggio in (9, 17, 25):
+        p = c.beginPath()
+        r = raggio * s
+        for i in range(25):
+            ang = math.radians(-38 + (76 * i / 24))
+            x, y = ox + r * math.cos(ang), oy + r * math.sin(ang)
+            p.moveTo(x, y) if i == 0 else p.lineTo(x, y)
+        c.drawPath(p, stroke=1, fill=0)
+    c.restoreState()
+
+
+def _icone_portali(c, tipi, cy, colore):
+    """Google, TripAdvisor e TheFork: segni sintetici coerenti con la placca."""
+    if not tipi:
+        return
+    passo = 13 * mm
+    x = PW / 2 - passo * (len(tipi) - 1) / 2
+    c.saveState()
+    c.setStrokeColor(colore)
+    c.setFillColor(colore)
+    c.setLineCap(1)
+    for t in tipi:
+        if t == 'google':
+            c.setLineWidth(0.9 * mm)
+            p = c.beginPath()
+            for i in range(41):                     # cerchio aperto
+                ang = math.radians(-20 + (330 * i / 40))
+                r = 2.9 * mm
+                xx, yy = x + r * math.cos(ang), cy + r * math.sin(ang)
+                p.moveTo(xx, yy) if i == 0 else p.lineTo(xx, yy)
+            c.drawPath(p, stroke=1, fill=0)
+            c.line(x, cy, x + 2.9 * mm, cy)
+        elif t == 'tripadvisor':
+            c.setLineWidth(0.8 * mm)
+            for dx in (-2.6 * mm, 2.6 * mm):
+                c.circle(x + dx, cy, 2.5 * mm, stroke=1, fill=0)
+                c.circle(x + dx, cy, 0.8 * mm, stroke=0, fill=1)
+        else:                                        # thefork
+            c.setLineWidth(0.7 * mm)
+            for dx in (-1.4 * mm, 0, 1.4 * mm):
+                c.line(x + dx, cy + 3.2 * mm, x + dx, cy + 0.6 * mm)
+            c.line(x - 1.4 * mm, cy + 0.6 * mm, x + 1.4 * mm, cy + 0.6 * mm)
+            c.line(x, cy + 0.6 * mm, x, cy - 3.4 * mm)
+        x += passo
+    c.restoreState()
+
+
+def _sfondo_base(chiara):
+    f = os.path.join(BG_DIR, 'bg-chiara.jpg' if chiara else 'bg-scura.jpg')
+    if os.path.exists(f):
+        try:
+            return ImageReader(f)
+        except Exception:
+            return None
+    return None
 
 
 def genera_pdf(ordine):
-    """Ritorna i byte del PDF, oppure solleva RuntimeError se WeasyPrint manca."""
-    try:
-        from weasyprint import HTML as WeasyHTML
-    except Exception as e:
-        raise RuntimeError(f'WeasyPrint non disponibile: {e}')
-    html = costruisci_html(ordine)
-    return WeasyHTML(string=html, base_url=FRONTEND).write_pdf()
+    """Ritorna i byte del PDF pronto per il tipografo."""
+    _registra_font()
+    alle = ordine.allegati or {}
+    base = ordine.tier == 'base'
+
+    if base:
+        chiara = (ordine.variante or 'scura') == 'chiara'
+        sfondo = HexColor('#f5f2ee' if chiara else '#2b2d31')
+        inchiostro = HexColor('#2b2d31' if chiara else '#f5f2ee')
+        accento = HexColor('#c4622d')
+        texture, foto = _sfondo_base(chiara), None
+        velo = Color(1, 1, 1, 0.28) if chiara else Color(0.169, 0.176, 0.192, 0.55)
+        titolo = 'Avvicina il telefono per lasciare una recensione'
+        nome = 'SB FOOD CONSULTING'
+        logo = None
+        portali = ['google', 'tripadvisor', 'thefork']
+    else:
+        sfondo = _colore(ordine.colore_sfondo, '#2b2d31')
+        accento = _colore(ordine.colore_primario, '#c4622d')
+        chiaro = _luminanza(ordine.colore_sfondo or '#2b2d31') > 0.6
+        inchiostro = HexColor('#2b2d31' if chiaro else '#f5f2ee')
+        texture = None
+        foto = _immagine_da_allegato(alle.get('foto'))
+        velo = Color(sfondo.red, sfondo.green, sfondo.blue, 0.80)
+        titolo = ordine.testo_placca or 'Avvicina il telefono per lasciare una recensione'
+        nome = (ordine.nome_locale or '').upper()
+        logo = _immagine_da_allegato(alle.get('logo'))
+        portali = [t for t, u in (('google', ordine.link_google),
+                                  ('tripadvisor', ordine.link_tripadvisor),
+                                  ('thefork', ordine.link_thefork)) if u] or ['google']
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(PW, PH))
+    c.setTitle(f'Placca NFC — {ordine.nome_locale}')
+
+    # fondo al vivo (copre anche l'abbondanza)
+    c.setFillColor(sfondo)
+    c.rect(0, 0, PW, PH, stroke=0, fill=1)
+    immagine = texture or foto
+    if immagine:
+        try:
+            # "cover": riempie tutto il formato senza deformare, ritagliando l'eccesso
+            iw, ih = immagine.getSize()
+            scala = max(PW / iw, PH / ih)
+            dw, dh = iw * scala, ih * scala
+            c.saveState()
+            path = c.beginPath()
+            path.rect(0, 0, PW, PH)
+            c.clipPath(path, stroke=0, fill=0)
+            c.drawImage(immagine, (PW - dw) / 2, (PH - dh) / 2, dw, dh, mask='auto')
+            c.restoreState()
+            c.setFillColor(velo)
+            c.rect(0, 0, PW, PH, stroke=0, fill=1)
+        except Exception as e:
+            logger.warning('Immagine di fondo non applicata: %s', e)
+
+    # cornice sottile dentro l'area di sicurezza
+    c.setStrokeColor(accento)
+    c.setLineWidth(0.5)
+    c.rect(BLEED + 6.5 * mm, BLEED + 6.5 * mm, W - 13 * mm, H - 14 * mm, stroke=1, fill=0)
+
+    # riga di benvenuto
+    c.setFont(_f(True, True), 10.5)
+    c.setFillColor(inchiostro)
+    c.setFillAlpha(0.8)
+    c.drawCentredString(PW / 2, PH - BLEED - 16 * mm, 'È stato un piacere averti con noi')
+    c.setFillAlpha(1)
+
+    # blocco centrale: icona, etichetta, titolo, ringraziamento
+    _icona_tap(c, PW / 2, PH - BLEED - 47 * mm, 24 * mm, accento)
+    c.setFont(_f(False), 5)
+    c.setFillColor(accento)
+    c.drawCentredString(PW / 2, PH - BLEED - 63 * mm, 'A P P O G G I A   Q U I')
+
+    size = 23 if len(titolo) <= 52 else (19 if len(titolo) <= 78 else 16)
+    y = _testo_centrato(c, titolo, PH - BLEED - 78 * mm, _f(True), size, inchiostro,
+                        leading=size * 1.2, larghezza=80 * mm)
+    # il ringraziamento non deve mai scendere sul piede, anche con titoli lunghi
+    minimo = BLEED + (44 * mm if ordine.tier == 'personalizzata-menu' else 38 * mm)
+    c.setFont(_f(True, True), 12.5)
+    c.setFillColor(accento)
+    c.drawCentredString(PW / 2, max(y - 14 * mm, minimo), 'Grazie per il tuo feedback!')
+
+    # piede: logo, portali, badge menù, nome
+    y_piede = BLEED + 13 * mm
+    c.setFont(_f(False), 7)
+    c.setFillColor(inchiostro)
+    c.setFillAlpha(0.85)
+    c.drawCentredString(PW / 2, y_piede, ' '.join(nome[:46]))
+    c.setFillAlpha(1)
+
+    y_sopra = y_piede + 8 * mm
+    if ordine.tier == 'personalizzata-menu':
+        c.setFont(_f(False), 5)
+        c.setFillColor(accento)
+        etichetta = 'M E N Ù   D I G I T A L E'
+        larg = c.stringWidth(etichetta, _f(False), 5) + 5 * mm
+        c.setStrokeColor(accento)
+        c.setLineWidth(0.4)
+        c.rect(PW / 2 - larg / 2, y_sopra - 1.4 * mm, larg, 4.6 * mm, stroke=1, fill=0)
+        c.drawCentredString(PW / 2, y_sopra, etichetta)
+        y_sopra += 9 * mm
+
+    _icone_portali(c, portali, y_sopra + 2 * mm, accento)
+    y_sopra += 10 * mm
+
+    if logo:
+        try:
+            lw, lh = logo.getSize()
+            scala = min(40 * mm / lw, 14 * mm / lh)
+            c.drawImage(logo, PW / 2 - (lw * scala) / 2, y_sopra,
+                        lw * scala, lh * scala, mask='auto')
+        except Exception as e:
+            logger.warning('Logo non inserito nel PDF: %s', e)
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
