@@ -159,6 +159,17 @@ def stripe_webhook():
 
 def _gestisci_pagamento(session):
     """Gestisce un pagamento Stripe completato."""
+    # Ordini Placca NFC: flusso separato (routes/nfc.py), riconosciuto dal metadata tipo=nfc
+    try:
+        meta = session.metadata
+        tipo = meta.get('tipo', '') if hasattr(meta, 'get') else getattr(meta, 'tipo', '')
+        if tipo == 'nfc':
+            from routes.nfc import gestisci_pagamento_nfc
+            gestisci_pagamento_nfc(session)
+            return
+    except Exception as e:
+        logger.error('Errore webhook NFC: %s', e, exc_info=True)
+        return
     try:
         # Accesso corretto agli oggetti Stripe
         customer_details = session.customer_details

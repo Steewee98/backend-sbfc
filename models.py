@@ -333,3 +333,67 @@ class EmailSequenza(db.Model):
             'last_sent_at': self.last_sent_at.isoformat() if self.last_sent_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class OrdineNfc(db.Model):
+    """Ordine di una Placca NFC recensioni (shop sbfoodconsulting.com/placca-nfc).
+
+    Creato PRIMA del pagamento (stato 'in_attesa'); il webhook Stripe lo porta a
+    'pagato' e salva l'indirizzo di spedizione raccolto da Stripe. Lo slug è
+    l'identificativo pubblico scritto sul tag NFC: il tap apre
+    sbfoodconsulting.com/tap.html?p=<slug> che legge /api/nfc/p/<slug>.
+    """
+    __tablename__ = 'ordini_nfc'
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(80), unique=True, nullable=False)
+    stato = db.Column(db.String(30), default='in_attesa')  # in_attesa · pagato · in_lavorazione · spedito · consegnato · annullato
+    tier = db.Column(db.String(40), nullable=False)        # base · personalizzata · personalizzata-menu
+    quantita = db.Column(db.Integer, default=1)
+    variante = db.Column(db.String(20))                     # chiara · scura (solo tier base)
+
+    nome_locale = db.Column(db.String(200), nullable=False)
+    referente = db.Column(db.String(200))
+    email = db.Column(db.String(200), nullable=False)
+    telefono = db.Column(db.String(50))
+
+    link_google = db.Column(db.String(600))
+    link_tripadvisor = db.Column(db.String(600))
+    link_thefork = db.Column(db.String(600))
+
+    colore_primario = db.Column(db.String(20))
+    colore_sfondo = db.Column(db.String(20))
+    testo_placca = db.Column(db.String(200))
+    menu_link = db.Column(db.String(600))
+    note = db.Column(db.Text)
+    # allegati: {'logo': {'nome','mime','dati'(base64)}, 'foto': {...}, 'menu': {...}}
+    allegati = db.Column(db.JSON, default=dict)
+
+    importo = db.Column(db.Float)
+    stripe_id = db.Column(db.String(200))
+    spedizione = db.Column(db.JSON)   # nome + indirizzo raccolti da Stripe
+    tap_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    pagato_at = db.Column(db.DateTime)
+
+    def to_dict(self, con_allegati=False):
+        alle = self.allegati or {}
+        d = {
+            'id': self.id, 'slug': self.slug, 'stato': self.stato,
+            'tier': self.tier, 'quantita': self.quantita, 'variante': self.variante,
+            'nome_locale': self.nome_locale, 'referente': self.referente,
+            'email': self.email, 'telefono': self.telefono,
+            'link_google': self.link_google, 'link_tripadvisor': self.link_tripadvisor,
+            'link_thefork': self.link_thefork,
+            'colore_primario': self.colore_primario, 'colore_sfondo': self.colore_sfondo,
+            'testo_placca': self.testo_placca, 'menu_link': self.menu_link,
+            'note': self.note,
+            'allegati': {k: {'nome': v.get('nome'), 'mime': v.get('mime')} for k, v in alle.items()},
+            'importo': self.importo, 'stripe_id': self.stripe_id,
+            'spedizione': self.spedizione, 'tap_count': self.tap_count or 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'pagato_at': self.pagato_at.isoformat() if self.pagato_at else None,
+        }
+        if con_allegati:
+            d['allegati'] = alle
+        return d
