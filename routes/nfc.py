@@ -223,7 +223,7 @@ def crea_ordine():
             shipping_address_collection={'allowed_countries': ['IT', 'SM', 'VA', 'CH']},
             phone_number_collection={'enabled': True},
             success_url=f'{FRONTEND_URL}/placca-nfc-grazie.html?ordine={ordine.slug}',
-            cancel_url=f'{FRONTEND_URL}/academy.html?pagamento=annullato#placca-nfc',
+            cancel_url=f'{FRONTEND_URL}/placca-nfc.html?pagamento=annullato#acquista',
             metadata={'tipo': 'nfc', 'ordine_id': str(ordine.id), 'slug': ordine.slug,
                       'prodotto_id': f'placca-nfc-{tier}'},
         )
