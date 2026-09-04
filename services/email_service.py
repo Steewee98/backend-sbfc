@@ -424,24 +424,35 @@ NURTURE = {
         "sta guadagnando? Serve un sistema, non un numero.\n\nE' cio' che costruisce nel Modulo 01 - "
         "La Challenge del Controllo: 14 giorni, 14 azioni.\nScopra il Modulo 01: "
         "https://www.sbfoodconsulting.com/academy.html#modulo-01\n\nUn caro saluto,\nSB Food Consulting"),
-    3: ('email_nurture3_cruscotto.html',
+    3: ('email_nurture_foto_schede.html',
+        'Ci mandi una foto delle Sue schede (e il corso al 50%)',
+        "Gentile Ristoratore,\n\ndesidero ringraziarLa personalmente per aver scaricato e utilizzato "
+        "le schede operative di SB Food Consulting.\n\nSe le ha gia' stampate o messe in uso, ci farebbe "
+        "piacere ricevere una fotografia che le mostri all'interno della Sua attivita': puo' inviarla "
+        "rispondendo a questa email oppure su WhatsApp al +39 391 398 3820.\n\n"
+        "L'invio della fotografia e' facoltativo e non e' legato alla promozione.\n\n"
+        "In quanto utilizzatore delle nostre schede, puo' acquistare il corso completo di SB Food "
+        "Consulting con uno sconto esclusivo del 50%: 47,45 EUR anziche' 94,90 EUR, indipendentemente "
+        "dall'invio della fotografia. Per i dettagli risponda a questa email o ci contatti direttamente.\n\n"
+        "Grazie ancora per la fiducia,\nSimone Braghetta - SB Food Consulting"),
+    4: ('email_nurture3_cruscotto.html',
         'Controllo totale in mezz’ora al mese',
         "Salve,\n\nse per ora Le basta smettere di navigare a vista, c'e' lo strumento piu' economico "
         "che abbiamo: Il Cruscotto dell'Imprenditore. I numeri del locale in meno di 30 minuti al mese.\n\n"
         "Codice CRUSCOTTO15 (-15%): 21,25 EUR anziche' 25,00 EUR.\n"
         "https://www.sbfoodconsulting.com/cruscotto-imprenditore.html\n\nUn caro saluto,\nSB Food Consulting"),
-    4: ('email_nurture4_modulo.html',
+    5: ('email_nurture4_modulo.html',
         'Un’azione al giorno. E smette di guidare a occhio.',
         "Salve,\n\nla Challenge del Controllo e' un percorso da fare: un'azione al giorno, 5 minuti. "
         "Alla fine sa ogni mattina incassi, costi, punto di pareggio e quanto Le resta.\n\n"
         "Codice SCHEDE10 (-10%) sul Modulo 01: 17,91 EUR anziche' 19,90 EUR.\nScopra il Modulo 01: "
         "https://www.sbfoodconsulting.com/academy.html#modulo-01\n\nUn caro saluto,\nSB Food Consulting"),
-    5: ('email_nurture5_bundle.html',
+    6: ('email_nurture5_bundle.html',
         'Un problema alla volta e’ lento. Il metodo e’ uno.',
         "Salve,\n\ncinque moduli, un solo metodo. Presi singoli sarebbero 99,50 EUR; il corso completo "
         "costa meno.\n\nCodice SCHEDE10 (-10%) sul corso completo: 85,41 EUR anziche' 94,90 EUR.\n"
         "Vada ai prezzi: https://www.sbfoodconsulting.com/academy.html#prezzi\n\nUn caro saluto,\nSB Food Consulting"),
-    6: ('email_nurture6_ultimo.html',
+    7: ('email_nurture6_ultimo.html',
         '35 anni di ristorazione, in due strumenti',
         "Salve,\n\nsono Simone Braghetta. Le lascio i due strumenti, con i Suoi vantaggi:\n"
         "1. SB Food Academy - SCHEDE10 (-10%): modulo 17,91 EUR, completo 85,41 EUR. "

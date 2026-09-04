@@ -32,7 +32,7 @@ from services.email_service import invia_nurture, unsub_token
 logger = logging.getLogger(__name__)
 sequenze_bp = Blueprint('sequenze', __name__)
 
-NUM_STEP = 6
+NUM_STEP = 7
 CADENZA_GIORNI = 7
 
 
@@ -81,10 +81,14 @@ def _possiede(email):
 
 
 def _step_vende_posseduto(step, ha_academy, ha_cruscotto):
-    """Lo step vende un prodotto già acquistato? (3=Cruscotto, 4=modulo, 5=corso)."""
-    if step == 3 and ha_cruscotto:
+    """Lo step vende un prodotto già acquistato?
+
+    3 = foto delle schede + corso completo al 50% (Academy)
+    4 = Cruscotto · 5 = modulo · 6 = corso completo (Academy)
+    """
+    if step == 4 and ha_cruscotto:
         return True
-    if step in (4, 5) and ha_academy:
+    if step in (3, 5, 6) and ha_academy:
         return True
     return False
 
