@@ -350,7 +350,12 @@ def genera_pdf(ordine):
                                   ('thefork', ordine.link_thefork)) if u] or ['google']
 
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=(PW, PH))
+    # initialFontName evita che il PDF dichiari Helvetica senza mai usarla:
+    # un font non incorporato fa scattare i controlli di preflight in tipografia.
+    try:
+        c = canvas.Canvas(buf, pagesize=(PW, PH), initialFontName=_f(True), initialFontSize=10)
+    except TypeError:
+        c = canvas.Canvas(buf, pagesize=(PW, PH))
     c.setTitle(f'Placca NFC — {ordine.nome_locale}')
 
     # fondo al vivo (copre anche l'abbondanza)
