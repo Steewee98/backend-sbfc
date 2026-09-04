@@ -347,11 +347,11 @@ def genera_pdf(ordine):
     c.setFillAlpha(1)
 
     # blocco centrale: icona, etichetta, titolo, ringraziamento
-    _icona_tap(c, PW / 2, PH - BLEED - 47 * mm, 24 * mm, accento)
-    _testo_spaziato(c, 'APPOGGIA QUI', PH - BLEED - 63 * mm, _f(False), 5, 2.0, accento)
+    _icona_tap(c, PW / 2, PH - BLEED - 37 * mm, 24 * mm, accento)
+    _testo_spaziato(c, 'APPOGGIA QUI', PH - BLEED - 52.5 * mm, _f(False), 5, 2.0, accento)
 
     size = 23 if len(titolo) <= 52 else (19 if len(titolo) <= 78 else 16)
-    y = _testo_centrato(c, titolo, PH - BLEED - 78 * mm, _f(True), size, inchiostro,
+    y = _testo_centrato(c, titolo, PH - BLEED - 67 * mm, _f(True), size, inchiostro,
                         leading=size * 1.2, larghezza=80 * mm)
     # il ringraziamento non deve mai scendere sul piede, anche con titoli lunghi
     minimo = BLEED + 36 * mm
