@@ -139,39 +139,131 @@ def _icona_tap(c, cx, cy, larghezza, colore):
     c.restoreState()
 
 
-def _icone_portali(c, tipi, cy, colore):
-    """Google, TripAdvisor e TheFork: segni sintetici coerenti con la placca."""
+def _arco_svg(c, path, cx, cy, r, a0, a1, conv, passi=48, muovi=True):
+    """Campiona un arco in coordinate SVG (y verso il basso) e lo converte in PDF."""
+    for i in range(passi + 1):
+        a = math.radians(a0 + (a1 - a0) * i / passi)
+        x, y = conv(cx + r * math.cos(a), cy + r * math.sin(a))
+        if i == 0 and muovi:
+            path.moveTo(x, y)
+        else:
+            path.lineTo(x, y)
+
+
+def _icona_google(c, x, cy, altezza, colore):
+    """Cerchio aperto + raggio orizzontale, come nella placca stampata."""
+    s = altezza / 24.0
+    conv = lambda sx, sy: (x - altezza / 2 + sx * s, cy + altezza / 2 - sy * s)
+    c.setLineWidth(2.6 * s)
+    p = c.beginPath()
+    _arco_svg(c, p, 12, 12, 9, 0, 314, conv)
+    c.drawPath(p, stroke=1, fill=0)
+    x1, y1 = conv(21, 12)
+    x2, y2 = conv(12.4, 12)
+    c.line(x1, y1, x2, y2)
+
+
+def _icona_tripadvisor(c, x, cy, altezza, colore):
+    """Due occhi con pupilla, sorriso e sopracciglia."""
+    s = altezza / 26.0
+    larg = 44 * s
+    conv = lambda sx, sy: (x - larg / 2 + sx * s, cy + altezza / 2 - sy * s)
+    c.setLineWidth(2.4 * s)
+    for cx in (13, 31):
+        p = c.beginPath()
+        _arco_svg(c, p, cx, 13, 8.5, 0, 360, conv)
+        c.drawPath(p, stroke=1, fill=0)
+        px, py = conv(cx, 13)
+        c.circle(px, py, 2.8 * s, stroke=0, fill=1)
+    p = c.beginPath()                                   # sorriso
+    for pt in ((18.5, 19), (22, 22.5), (25.5, 19)):
+        xx, yy = conv(*pt)
+        p.moveTo(xx, yy) if pt[0] == 18.5 else p.lineTo(xx, yy)
+    c.drawPath(p, stroke=1, fill=0)
+    for x0, y0, x1c, y1c, x2c, y2c, x3, y3 in ((6, 6, 9, 3, 12, 3, 14, 5),
+                                               (38, 6, 35, 3, 32, 3, 30, 5)):
+        p = c.beginPath()
+        p.moveTo(*conv(x0, y0))
+        p.curveTo(*conv(x1c, y1c), *conv(x2c, y2c), *conv(x3, y3))
+        c.drawPath(p, stroke=1, fill=0)
+
+
+def _icona_thefork(c, x, cy, altezza, colore):
+    """Forchetta a tre rebbi con il gambo lungo."""
+    s = altezza / 24.0
+    conv = lambda sx, sy: (x - altezza / 2 + sx * s, cy + altezza / 2 - sy * s)
+    c.setLineWidth(2.2 * s)
+    for rebbio in (8, 12, 16):
+        c.line(*conv(rebbio, 3), *conv(rebbio, 9))
+    p = c.beginPath()                                    # curva che unisce i rebbi
+    p.moveTo(*conv(8, 9))
+    p.curveTo(*conv(8, 13), *conv(16, 13), *conv(16, 9))
+    c.drawPath(p, stroke=1, fill=0)
+    c.line(*conv(12, 9), *conv(12, 21))
+
+
+def _icone_portali(c, tipi, cy, colore, badge=None):
+    """Riga dei portali (con l'eventuale badge del menù), come nell'anteprima."""
     if not tipi:
         return
-    passo = 13 * mm
-    x = PW / 2 - passo * (len(tipi) - 1) / 2
+    ALT = {'google': 6.2 * mm, 'tripadvisor': 5 * mm, 'thefork': 6.8 * mm}
+    LARG = {'google': 6.2 * mm, 'tripadvisor': 8.5 * mm, 'thefork': 6.8 * mm}
+    gap = 6 * mm
+    larg_badge = 0
+    if badge:
+        larg_badge = (c.stringWidth(badge, _f(False), 5) + 1.6 * max(0, len(badge) - 1)) + 4 * mm
+    totale = sum(LARG[t] for t in tipi) + gap * (len(tipi) - 1) + (gap + larg_badge if badge else 0)
+    x = PW / 2 - totale / 2
     c.saveState()
     c.setStrokeColor(colore)
     c.setFillColor(colore)
     c.setLineCap(1)
+    c.setLineJoin(1)
     for t in tipi:
+        centro = x + LARG[t] / 2
         if t == 'google':
-            c.setLineWidth(0.9 * mm)
-            p = c.beginPath()
-            for i in range(41):                     # cerchio aperto
-                ang = math.radians(-20 + (330 * i / 40))
-                r = 2.9 * mm
-                xx, yy = x + r * math.cos(ang), cy + r * math.sin(ang)
-                p.moveTo(xx, yy) if i == 0 else p.lineTo(xx, yy)
-            c.drawPath(p, stroke=1, fill=0)
-            c.line(x, cy, x + 2.9 * mm, cy)
+            _icona_google(c, centro, cy, ALT[t], colore)
         elif t == 'tripadvisor':
-            c.setLineWidth(0.8 * mm)
-            for dx in (-2.6 * mm, 2.6 * mm):
-                c.circle(x + dx, cy, 2.5 * mm, stroke=1, fill=0)
-                c.circle(x + dx, cy, 0.8 * mm, stroke=0, fill=1)
-        else:                                        # thefork
-            c.setLineWidth(0.7 * mm)
-            for dx in (-1.4 * mm, 0, 1.4 * mm):
-                c.line(x + dx, cy + 3.2 * mm, x + dx, cy + 0.6 * mm)
-            c.line(x - 1.4 * mm, cy + 0.6 * mm, x + 1.4 * mm, cy + 0.6 * mm)
-            c.line(x, cy + 0.6 * mm, x, cy - 3.4 * mm)
-        x += passo
+            _icona_tripadvisor(c, centro, cy, ALT[t], colore)
+        else:
+            _icona_thefork(c, centro, cy, ALT[t], colore)
+        x += LARG[t] + gap
+    if badge:
+        c.setLineWidth(0.4)
+        c.rect(x, cy - 2.2 * mm, larg_badge, 4.4 * mm, stroke=1, fill=0)
+        t = c.beginText(x + 2 * mm, cy - 0.6 * mm)
+        t.setFont(_f(False), 5)
+        t.setCharSpace(1.6)
+        t.setFillColor(colore)
+        t.textOut(badge)
+        c.drawText(t)
+    c.restoreState()
+
+
+def _testo_spaziato(c, testo, y, font, size, spazio, colore):
+    """Testo centrato con spaziatura fra le lettere. Ritorna la larghezza occupata."""
+    larg = c.stringWidth(testo, font, size) + spazio * max(0, len(testo) - 1)
+    t = c.beginText(PW / 2 - larg / 2, y)
+    t.setFont(font, size)
+    t.setCharSpace(spazio)
+    t.setFillColor(colore)
+    t.textOut(testo)
+    c.drawText(t)
+    return larg
+
+
+def _firma(c, testo, y, colore):
+    """Nome fra due trattini, come la firma della placca stampata."""
+    font, size, spazio = _f(False), 6.8, 2.4
+    c.saveState()
+    testo = (testo or '').upper()
+    larg = _testo_spaziato(c, testo, y, font, size, spazio, colore)
+    c.setStrokeColor(colore)
+    c.setStrokeAlpha(0.7)
+    c.setLineWidth(0.5)
+    ymid = y + size * 0.32
+    c.line(PW / 2 - larg / 2 - 3 * mm - 7 * mm, ymid, PW / 2 - larg / 2 - 3 * mm, ymid)
+    c.line(PW / 2 + larg / 2 + 3 * mm, ymid, PW / 2 + larg / 2 + 3 * mm + 7 * mm, ymid)
     c.restoreState()
 
 
@@ -199,7 +291,7 @@ def genera_pdf(ordine):
         texture, foto = _sfondo_base(chiara), None
         velo = Color(1, 1, 1, 0.28) if chiara else Color(0.169, 0.176, 0.192, 0.55)
         titolo = 'Avvicina il telefono per lasciare una recensione'
-        nome = 'SB FOOD CONSULTING'
+        nome = 'SB Food Consulting'
         logo = None
         portali = ['google', 'tripadvisor', 'thefork']
     else:
@@ -211,7 +303,7 @@ def genera_pdf(ordine):
         foto = _immagine_da_allegato(alle.get('foto'))
         velo = Color(sfondo.red, sfondo.green, sfondo.blue, 0.80)
         titolo = ordine.testo_placca or 'Avvicina il telefono per lasciare una recensione'
-        nome = (ordine.nome_locale or '').upper()
+        nome = ordine.nome_locale or ''
         logo = _immagine_da_allegato(alle.get('logo'))
         portali = [t for t, u in (('google', ordine.link_google),
                                   ('tripadvisor', ordine.link_tripadvisor),
@@ -256,46 +348,30 @@ def genera_pdf(ordine):
 
     # blocco centrale: icona, etichetta, titolo, ringraziamento
     _icona_tap(c, PW / 2, PH - BLEED - 47 * mm, 24 * mm, accento)
-    c.setFont(_f(False), 5)
-    c.setFillColor(accento)
-    c.drawCentredString(PW / 2, PH - BLEED - 63 * mm, 'A P P O G G I A   Q U I')
+    _testo_spaziato(c, 'APPOGGIA QUI', PH - BLEED - 63 * mm, _f(False), 5, 2.0, accento)
 
     size = 23 if len(titolo) <= 52 else (19 if len(titolo) <= 78 else 16)
     y = _testo_centrato(c, titolo, PH - BLEED - 78 * mm, _f(True), size, inchiostro,
                         leading=size * 1.2, larghezza=80 * mm)
     # il ringraziamento non deve mai scendere sul piede, anche con titoli lunghi
-    minimo = BLEED + (44 * mm if ordine.tier == 'personalizzata-menu' else 38 * mm)
+    minimo = BLEED + 36 * mm
     c.setFont(_f(True, True), 12.5)
     c.setFillColor(accento)
     c.drawCentredString(PW / 2, max(y - 14 * mm, minimo), 'Grazie per il tuo feedback!')
 
-    # piede: logo, portali, badge menù, nome
-    y_piede = BLEED + 13 * mm
-    c.setFont(_f(False), 7)
-    c.setFillColor(inchiostro)
-    c.setFillAlpha(0.85)
-    c.drawCentredString(PW / 2, y_piede, ' '.join(nome[:46]))
-    c.setFillAlpha(1)
+    # piede: logo, portali (con l'eventuale badge menù), firma fra i trattini
+    y_firma = BLEED + 13 * mm
+    _firma(c, nome, y_firma, accento)
 
-    y_sopra = y_piede + 8 * mm
-    if ordine.tier == 'personalizzata-menu':
-        c.setFont(_f(False), 5)
-        c.setFillColor(accento)
-        etichetta = 'M E N Ù   D I G I T A L E'
-        larg = c.stringWidth(etichetta, _f(False), 5) + 5 * mm
-        c.setStrokeColor(accento)
-        c.setLineWidth(0.4)
-        c.rect(PW / 2 - larg / 2, y_sopra - 1.4 * mm, larg, 4.6 * mm, stroke=1, fill=0)
-        c.drawCentredString(PW / 2, y_sopra, etichetta)
-        y_sopra += 9 * mm
-
-    _icone_portali(c, portali, y_sopra + 2 * mm, accento)
-    y_sopra += 10 * mm
+    y_sopra = y_firma + 9 * mm
+    badge = 'MENÙ' if ordine.tier == 'personalizzata-menu' else None
+    _icone_portali(c, portali, y_sopra + 2.5 * mm, accento, badge=badge)
+    y_sopra += 9 * mm
 
     if logo:
         try:
             lw, lh = logo.getSize()
-            scala = min(40 * mm / lw, 14 * mm / lh)
+            scala = min(40 * mm / lw, 12 * mm / lh)
             c.drawImage(logo, PW / 2 - (lw * scala) / 2, y_sopra,
                         lw * scala, lh * scala, mask='auto')
         except Exception as e:
