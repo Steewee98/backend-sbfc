@@ -83,15 +83,33 @@ def _immagine_da_allegato(allegato):
         return None
 
 
-def _testo_centrato(c, testo, y, font, size, colore, leading=None, larghezza=80 * mm):
-    """Scrive righe centrate mandando a capo sulla larghezza data. Ritorna la y finale."""
-    c.setFont(font, size)
-    c.setFillColor(colore)
+def _testo_spaziato(c, testo, y, font, size, spazio, colore):
+    """Testo centrato con spaziatura fra le lettere. Ritorna la larghezza occupata."""
+    larg = c.stringWidth(testo, font, size) + spazio * max(0, len(testo) - 1)
+    # la spaziatura fra le lettere fa parte dello stato del PDF: va isolata,
+    # altrimenti resta attiva sul testo disegnato dopo e lo allarga.
+    c.saveState()
+    t = c.beginText(PW / 2 - larg / 2, y)
+    t.setFont(font, size)
+    t.setCharSpace(spazio)
+    t.setFillColor(colore)
+    t.textOut(testo)
+    c.drawText(t)
+    c.restoreState()
+    return larg
+
+
+def _testo_centrato(c, testo, y, font, size, colore, leading=None,
+                    larghezza=80 * mm, spazio=0.2):
+    """Righe centrate con a capo automatico. Ritorna la y dell'ultima riga."""
+    def largh(t):
+        return c.stringWidth(t, font, size) + spazio * max(0, len(t) - 1)
+
     leading = leading or size * 1.22
     parole, righe, riga = testo.split(), [], ''
     for p in parole:
         prova = (riga + ' ' + p).strip()
-        if c.stringWidth(prova, font, size) <= larghezza:
+        if largh(prova) <= larghezza:
             riga = prova
         else:
             if riga:
@@ -100,7 +118,7 @@ def _testo_centrato(c, testo, y, font, size, colore, leading=None, larghezza=80 
     if riga:
         righe.append(riga)
     for r in righe:
-        c.drawCentredString(PW / 2, y, r)
+        _testo_spaziato(c, r, y, font, size, spazio, colore)
         y -= leading
     return y + leading
 
@@ -240,18 +258,6 @@ def _icone_portali(c, tipi, cy, colore, badge=None):
     c.restoreState()
 
 
-def _testo_spaziato(c, testo, y, font, size, spazio, colore):
-    """Testo centrato con spaziatura fra le lettere. Ritorna la larghezza occupata."""
-    larg = c.stringWidth(testo, font, size) + spazio * max(0, len(testo) - 1)
-    t = c.beginText(PW / 2 - larg / 2, y)
-    t.setFont(font, size)
-    t.setCharSpace(spazio)
-    t.setFillColor(colore)
-    t.textOut(testo)
-    c.drawText(t)
-    return larg
-
-
 def _firma(c, testo, y, colore):
     """Nome fra due trattini, come la firma della placca stampata."""
     font, size, spazio = _f(False), 6.8, 2.4
@@ -277,6 +283,36 @@ def _sfondo_base(chiara):
     return None
 
 
+def _velo_gradiente(c, colori, stop=(0.0, 0.45, 1.0), bande=140):
+    """Sfumatura verticale semitrasparente sopra l'immagine di fondo.
+
+    ReportLab ignora l'alpha nei gradienti, quindi la sfumatura è composta da
+    bande sottili: a 140 bande su 154 mm il passaggio è continuo alla vista.
+    """
+    def interpola(t):
+        for i in range(len(stop) - 1):
+            if t <= stop[i + 1] or i == len(stop) - 2:
+                a, b = colori[i], colori[i + 1]
+                k = 0 if stop[i + 1] == stop[i] else (t - stop[i]) / (stop[i + 1] - stop[i])
+                k = min(max(k, 0), 1)
+                return Color(a.red + (b.red - a.red) * k,
+                             a.green + (b.green - a.green) * k,
+                             a.blue + (b.blue - a.blue) * k,
+                             a.alpha + (b.alpha - a.alpha) * k)
+        return colori[-1]
+
+    c.saveState()
+    h = PH / bande
+    for i in range(bande):
+        t = (i + 0.5) / bande                 # 0 = alto, 1 = basso, come nel CSS
+        col = interpola(t)
+        c.setFillColor(col)
+        c.setFillAlpha(col.alpha)
+        c.rect(0, PH - (i + 1) * h, PW, h + 0.4, stroke=0, fill=1)
+    c.setFillAlpha(1)
+    c.restoreState()
+
+
 def genera_pdf(ordine):
     """Ritorna i byte del PDF pronto per il tipografo."""
     _registra_font()
@@ -289,7 +325,11 @@ def genera_pdf(ordine):
         inchiostro = HexColor('#2b2d31' if chiara else '#f5f2ee')
         accento = HexColor('#c4622d')
         texture, foto = _sfondo_base(chiara), None
-        velo = Color(1, 1, 1, 0.28) if chiara else Color(0.169, 0.176, 0.192, 0.55)
+        # stessi tre passaggi del linear-gradient(180deg, ...) del file di stampa
+        velo = ([Color(249/255, 246/255, 241/255, .28), Color(246/255, 242/255, 236/255, .24),
+                 Color(243/255, 238/255, 231/255, .45)] if chiara else
+                [Color(28/255, 29/255, 33/255, .30), Color(24/255, 25/255, 29/255, .26),
+                 Color(20/255, 21/255, 25/255, .48)])
         titolo = 'Avvicina il telefono per lasciare una recensione'
         nome = 'SB Food Consulting'
         logo = None
@@ -301,7 +341,7 @@ def genera_pdf(ordine):
         inchiostro = HexColor('#2b2d31' if chiaro else '#f5f2ee')
         texture = None
         foto = _immagine_da_allegato(alle.get('foto'))
-        velo = Color(sfondo.red, sfondo.green, sfondo.blue, 0.80)
+        velo = [Color(sfondo.red, sfondo.green, sfondo.blue, a) for a in (.74, .78, .86)]
         titolo = ordine.testo_placca or 'Avvicina il telefono per lasciare una recensione'
         nome = ordine.nome_locale or ''
         logo = _immagine_da_allegato(alle.get('logo'))
@@ -329,44 +369,41 @@ def genera_pdf(ordine):
             c.clipPath(path, stroke=0, fill=0)
             c.drawImage(immagine, (PW - dw) / 2, (PH - dh) / 2, dw, dh, mask='auto')
             c.restoreState()
-            c.setFillColor(velo)
-            c.rect(0, 0, PW, PH, stroke=0, fill=1)
+            _velo_gradiente(c, velo)
         except Exception as e:
             logger.warning('Immagine di fondo non applicata: %s', e)
 
-    # cornice sottile dentro l'area di sicurezza
+    # cornice: 6,5 mm dai lati e dal fondo, 7 mm dall'alto — quote del file di stampa,
+    # misurate dal bordo del foglio (abbondanza inclusa), non dal formato finito
     c.setStrokeColor(accento)
     c.setLineWidth(0.5)
-    c.rect(BLEED + 6.5 * mm, BLEED + 6.5 * mm, W - 13 * mm, H - 14 * mm, stroke=1, fill=0)
+    c.rect(6.5 * mm, 6.5 * mm, PW - 13 * mm, PH - 13.5 * mm, stroke=1, fill=0)
 
     # riga di benvenuto
-    c.setFont(_f(True, True), 10.5)
-    c.setFillColor(inchiostro)
-    c.setFillAlpha(0.8)
-    c.drawCentredString(PW / 2, PH - BLEED - 16 * mm, 'È stato un piacere averti con noi')
-    c.setFillAlpha(1)
+    c.saveState()
+    c.setFillAlpha(0.9)
+    _testo_spaziato(c, 'È stato un piacere averti con noi', PH - BLEED - 15.05 * mm,
+                    _f(True, True), 10.5, 0.2, inchiostro)
+    c.restoreState()
 
     # blocco centrale: icona, etichetta, titolo, ringraziamento
-    _icona_tap(c, PW / 2, PH - BLEED - 37 * mm, 24 * mm, accento)
-    _testo_spaziato(c, 'APPOGGIA QUI', PH - BLEED - 52.5 * mm, _f(False), 5, 2.0, accento)
+    _icona_tap(c, PW / 2, PH - BLEED - 35.9 * mm, 24 * mm, accento)
+    _testo_spaziato(c, 'APPOGGIA QUI', PH - BLEED - 51.85 * mm, _f(False), 5, 2.0, accento)
 
     size = 23 if len(titolo) <= 52 else (19 if len(titolo) <= 78 else 16)
-    y = _testo_centrato(c, titolo, PH - BLEED - 67 * mm, _f(True), size, inchiostro,
+    y = _testo_centrato(c, titolo, PH - BLEED - 66.6 * mm, _f(True), size, inchiostro,
                         leading=size * 1.2, larghezza=80 * mm)
     # il ringraziamento non deve mai scendere sul piede, anche con titoli lunghi
-    minimo = BLEED + 36 * mm
-    c.setFont(_f(True, True), 12.5)
-    c.setFillColor(accento)
-    c.drawCentredString(PW / 2, max(y - 14 * mm, minimo), 'Grazie per il tuo feedback!')
+    minimo = BLEED + 31 * mm
+    _testo_spaziato(c, 'Grazie per il tuo feedback!', max(y - 19.0 * mm, minimo),
+                    _f(True, True), 12.5, 0.2, accento)
 
     # piede: logo, portali (con l'eventuale badge menù), firma fra i trattini
-    y_firma = BLEED + 13 * mm
-    _firma(c, nome, y_firma, accento)
+    _firma(c, nome, BLEED + 15.4 * mm, accento)
 
-    y_sopra = y_firma + 9 * mm
     badge = 'MENÙ' if ordine.tier == 'personalizzata-menu' else None
-    _icone_portali(c, portali, y_sopra + 2.5 * mm, accento, badge=badge)
-    y_sopra += 9 * mm
+    _icone_portali(c, portali, BLEED + 26.05 * mm, accento, badge=badge)
+    y_sopra = BLEED + 32 * mm
 
     if logo:
         try:
