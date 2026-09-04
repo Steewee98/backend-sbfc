@@ -425,15 +425,16 @@ NURTURE = {
         "La Challenge del Controllo: 14 giorni, 14 azioni.\nScopra il Modulo 01: "
         "https://www.sbfoodconsulting.com/academy.html#modulo-01\n\nUn caro saluto,\nSB Food Consulting"),
     3: ('email_nurture_foto_schede.html',
-        'Ci mandi una foto delle Sue schede (e il corso al 50%)',
-        "Gentile Ristoratore,\n\ndesidero ringraziarLa personalmente per aver scaricato e utilizzato "
-        "le schede operative di SB Food Consulting.\n\nSe le ha gia' stampate o messe in uso, ci farebbe "
-        "piacere ricevere una fotografia che le mostri all'interno della Sua attivita': puo' inviarla "
-        "rispondendo a questa email oppure su WhatsApp al +39 391 398 3820.\n\n"
-        "L'invio della fotografia e' facoltativo e non e' legato alla promozione.\n\n"
-        "In quanto utilizzatore delle nostre schede, puo' acquistare il corso completo di SB Food "
-        "Consulting con uno sconto esclusivo del 50%: 47,45 EUR anziche' 94,90 EUR, indipendentemente "
-        "dall'invio della fotografia. Per i dettagli risponda a questa email o ci contatti direttamente.\n\n"
+        'Una foto delle Sue schede vale il 50% sul corso completo',
+        "Gentile Ristoratore,\n\ndesidero ringraziarLa personalmente per aver scaricato le schede "
+        "operative di SB Food Consulting.\n\nOggi le chiedo una cosa sola: mi mandi una fotografia "
+        "delle schede nel Suo locale. Stampate e appese in cucina, sul passe, compilate a mano: va bene "
+        "qualsiasi cosa, anche uno scatto veloce dal telefono.\n\n"
+        "A chi mi manda la fotografia riservo il corso completo di SB Food Consulting al 50%: "
+        "47,45 EUR anziche' 94,90 EUR, tutti e cinque i moduli. Ricevo la foto e Le rispondo io "
+        "con il codice per acquistarlo.\n\n"
+        "Puo' inviarla su WhatsApp al +39 391 398 3820 oppure rispondendo a questa email.\n\n"
+        "La fotografia resta per uso interno: se volessimo mostrarla altrove, glielo chiederemmo prima.\n\n"
         "Grazie ancora per la fiducia,\nSimone Braghetta - SB Food Consulting"),
     4: ('email_nurture3_cruscotto.html',
         'Controllo totale in mezz’ora al mese',
