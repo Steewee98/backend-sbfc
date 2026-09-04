@@ -527,6 +527,33 @@ def elimina_ordine(oid):
     return jsonify({'ok': True})
 
 
+@nfc_bp.route('/api/nfc/ordini/<int:oid>/grafica.pdf', methods=['GET'])
+def scarica_grafica(oid):
+    """PDF di stampa della placca (A6 + 3 mm di abbondanza), pronto per il tipografo.
+
+    Il token può arrivare come header o come query string: il download parte da
+    un link diretto del gestionale, che non può impostare header.
+    """
+    token = request.headers.get('X-Admin-Token') or request.args.get('token')
+    if token != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+
+    ordine = OrdineNfc.query.get_or_404(oid)
+    try:
+        from utils.placca_pdf import genera_pdf
+        pdf = genera_pdf(ordine)
+    except RuntimeError as e:
+        logger.error('PDF placca %s: %s', oid, e)
+        return jsonify({'error': str(e)}), 503
+    except Exception as e:
+        logger.error('PDF placca %s: %s', oid, e, exc_info=True)
+        return jsonify({'error': 'Errore nella generazione del PDF'}), 500
+
+    nome = re.sub(r'[^a-zA-Z0-9]+', '-', ordine.nome_locale or 'placca').strip('-').lower()
+    return Response(pdf, mimetype='application/pdf', headers={
+        'Content-Disposition': f'attachment; filename="placca-{nome}-A6.pdf"'})
+
+
 @nfc_bp.route('/api/nfc/ordini/<int:oid>/allegato/<chiave>', methods=['GET'])
 @admin_required
 def scarica_allegato(oid, chiave):
