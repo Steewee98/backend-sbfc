@@ -36,7 +36,10 @@ CORS(app, resources={
             "http://localhost:8080",
             "http://localhost:3000",
             "http://localhost:8090",
-            "http://localhost:8091"
+            "http://localhost:8091",
+            # Anteprima locale del sito (serve.py nel repo sito_sbfc) e banco di prova
+            "http://localhost:5302",
+            "http://127.0.0.1:5302"
         ],
         "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         "allow_headers": [
