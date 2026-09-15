@@ -10,3 +10,10 @@ instance/
 
 # Anteprime/screenshot Playwright (transitori)
 .playwright-mcp/
+
+# Script one-shot e flag locali (invii manuali, non fanno parte del servizio)
+send_test_grazie.py
+send_cancellazione.py
+run_cancellazione.sh
+.cancellazione_inviata
+cancellazione.log
