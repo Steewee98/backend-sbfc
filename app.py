@@ -1,4 +1,5 @@
 import os
+import re
 import traceback
 import threading
 import time
@@ -37,9 +38,9 @@ CORS(app, resources={
             "http://localhost:3000",
             "http://localhost:8090",
             "http://localhost:8091",
-            # Anteprima locale del sito (serve.py nel repo sito_sbfc) e banco di prova
-            "http://localhost:5302",
-            "http://127.0.0.1:5302"
+            # Anteprima locale del sito (serve.py nel repo sito_sbfc) e banco di
+            # collaudo, che sceglie la porta da se': qualunque porta in locale.
+            re.compile(r"^http://(localhost|127\.0\.0\.1):\d+$")
         ],
         "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         "allow_headers": [
