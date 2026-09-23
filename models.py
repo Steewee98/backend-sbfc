@@ -368,11 +368,19 @@ class OrdineNfc(db.Model):
     note = db.Column(db.Text)
     # allegati: {'logo': {'nome','mime','dati'(base64)}, 'foto': {...}, 'menu': {...}}
     allegati = db.Column(db.JSON, default=dict)
+    # la famiglia del tap: pezzi che viaggiano con la placca recensioni, stesso slug.
+    # {'menu': {'quantita': n, 'variante': 'scura'|'chiara'}, 'wifi': {...}}
+    # Il tag menù punta a tap.html?p=<slug>&t=menu, il Wi-Fi a &t=wifi.
+    articoli = db.Column(db.JSON, default=dict)
+    wifi_rete = db.Column(db.String(100))
+    wifi_password = db.Column(db.String(100))
+    sconto = db.Column(db.Float)          # euro scalati dal kit, già dentro importo
 
     importo = db.Column(db.Float)
     stripe_id = db.Column(db.String(200))
     spedizione = db.Column(db.JSON)   # nome + indirizzo raccolti da Stripe
     tap_count = db.Column(db.Integer, default=0)
+    tap_pezzi = db.Column(db.JSON, default=dict)   # {'menu': n, 'wifi': n}
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     pagato_at = db.Column(db.DateTime)
 
@@ -391,6 +399,9 @@ class OrdineNfc(db.Model):
             'allegati': {k: {'nome': v.get('nome'), 'mime': v.get('mime')} for k, v in alle.items()},
             'importo': self.importo, 'stripe_id': self.stripe_id,
             'spedizione': self.spedizione, 'tap_count': self.tap_count or 0,
+            'articoli': self.articoli or {}, 'wifi_rete': self.wifi_rete,
+            'wifi_password': self.wifi_password, 'sconto': self.sconto,
+            'tap_pezzi': self.tap_pezzi or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'pagato_at': self.pagato_at.isoformat() if self.pagato_at else None,
         }

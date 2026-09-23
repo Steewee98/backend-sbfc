@@ -43,6 +43,23 @@ TIERS = {
     },
 }
 PREZZO_COPIA_EXTRA = 2500   # ogni placca oltre la prima (stessa grafica)
+
+# La famiglia del tap: pezzi che si aggiungono alla placca, stesso slug e stessa spedizione.
+# Grafica SB (scura o chiara); ogni pezzo ha il suo prezzo unitario, senza "primo pezzo".
+PEZZI = {
+    'menu': {
+        'nome': 'Tag menù al tavolo (A6)',
+        'descrizione': 'Il tap apre il tuo menù digitale. Uno per tavolo.',
+        'prezzo': 2500,
+    },
+    'wifi': {
+        'nome': 'Placchetta Wi-Fi (A7)',
+        'descrizione': 'Il tap mostra rete e password del Wi-Fi ospiti.',
+        'prezzo': 1900,
+    },
+}
+# Kit sala: placca + almeno un menù + almeno un Wi-Fi → sconto una tantum.
+KIT = {'nome': 'Kit sala', 'sconto': 1000}
 QUANTITA_MAX = 10
 MAX_FILE_BYTES = 4 * 1024 * 1024
 MIME_IMMAGINI = {'image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'}
@@ -63,9 +80,21 @@ def admin_required(f):
     return decorated
 
 
-def calcola_totale(tier, quantita):
-    """Prima placca al prezzo del tier, le altre a PREZZO_COPIA_EXTRA. In centesimi."""
-    return TIERS[tier]['prezzo'] + PREZZO_COPIA_EXTRA * (quantita - 1)
+def kit_attivo(pezzi):
+    return all((pezzi or {}).get(k, 0) >= 1 for k in PEZZI)
+
+
+def calcola_totale(tier, quantita, pezzi=None):
+    """(totale, sconto) in centesimi.
+
+    Prima placca al prezzo del tier, le altre a PREZZO_COPIA_EXTRA; ogni pezzo
+    della famiglia al suo prezzo; se ci sono menù e Wi-Fi scatta lo sconto kit.
+    """
+    pezzi = pezzi or {}
+    totale = TIERS[tier]['prezzo'] + PREZZO_COPIA_EXTRA * (quantita - 1)
+    totale += sum(PEZZI[k]['prezzo'] * n for k, n in pezzi.items())
+    sconto = KIT['sconto'] if kit_attivo(pezzi) else 0
+    return totale - sconto, sconto
 
 
 def _slugify(testo):
@@ -113,6 +142,8 @@ def catalogo():
                   for k, v in TIERS.items()},
         'copia_extra': PREZZO_COPIA_EXTRA,
         'quantita_max': QUANTITA_MAX,
+        'pezzi': PEZZI,
+        'kit': KIT,
     })
 
 
@@ -144,6 +175,22 @@ def crea_ordine():
     variante = form.get('variante') if form.get('variante') in ('chiara', 'scura') else 'scura'
     personalizzata = tier != 'base'
 
+    pezzi = {}
+    for k in PEZZI:
+        try:
+            n = int(form.get(f'qta_{k}', 0) or 0)
+        except ValueError:
+            n = 0
+        if n > 0:
+            pezzi[k] = min(QUANTITA_MAX, n)
+    variante_pezzi = form.get('variante_pezzi') if form.get('variante_pezzi') in ('chiara', 'scura') else 'scura'
+    articoli = {k: {'quantita': n, 'variante': variante_pezzi} for k, n in pezzi.items()}
+
+    wifi_rete = (form.get('wifi_rete') or '').strip()[:100]
+    wifi_password = (form.get('wifi_password') or '').strip()[:100]
+    if 'wifi' in pezzi and not wifi_rete:
+        return jsonify({'error': 'Scrivi il nome della rete Wi-Fi ospiti'}), 400
+
     try:
         allegati = {}
         if personalizzata:
@@ -154,7 +201,7 @@ def crea_ordine():
             if foto:
                 allegati['foto'] = foto
         menu_link = ''
-        if tier == 'personalizzata-menu':
+        if tier == 'personalizzata-menu' or 'menu' in pezzi:
             menu = _leggi_file('menu', MIME_MENU)
             if menu:
                 allegati['menu'] = menu
@@ -164,6 +211,7 @@ def crea_ordine():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
+    totale, sconto = calcola_totale(tier, quantita, pezzi)
     ordine = OrdineNfc(
         slug=_slugify(nome_locale),
         tier=tier, quantita=quantita,
@@ -181,24 +229,48 @@ def crea_ordine():
         menu_link=menu_link or None,
         note=(form.get('note') or '').strip()[:2000] or None,
         allegati=allegati,
-        importo=calcola_totale(tier, quantita) / 100,
+        articoli=articoli,
+        wifi_rete=(wifi_rete or None) if 'wifi' in pezzi else None,
+        wifi_password=(wifi_password or None) if 'wifi' in pezzi else None,
+        sconto=sconto / 100 or None,
+        importo=totale / 100,
         stato='in_attesa',
     )
     db.session.add(ordine)
     db.session.commit()
 
     cfg = TIERS[tier]
+    # Stripe non accetta righe negative: con il kit, placca + un menù + un Wi-Fi
+    # diventano una riga sola già scontata, e il resto segue a prezzo pieno.
+    kit = kit_attivo(pezzi)
+    if kit:
+        riga_uno = {
+            'name': f'{KIT["nome"]} — placca recensioni, tag menù e placchetta Wi-Fi',
+            'description': f'{cfg["nome"]} + {PEZZI["menu"]["nome"]} + {PEZZI["wifi"]["nome"]}. Locale: {nome_locale}',
+            'amount': cfg['prezzo'] + sum(p['prezzo'] for p in PEZZI.values()) - KIT['sconto'],
+        }
+    else:
+        riga_uno = {'name': cfg['nome'], 'description': f'{cfg["descrizione"]} Locale: {nome_locale}',
+                    'amount': cfg['prezzo']}
     line_items = [{
         'price_data': {
             'currency': 'eur',
-            'product_data': {
-                'name': cfg['nome'],
-                'description': f'{cfg["descrizione"]} Locale: {nome_locale}',
-            },
-            'unit_amount': cfg['prezzo'],
+            'product_data': {'name': riga_uno['name'], 'description': riga_uno['description']},
+            'unit_amount': riga_uno['amount'],
         },
         'quantity': 1,
     }]
+    for k, n in pezzi.items():
+        resto = n - 1 if kit else n
+        if resto > 0:
+            line_items.append({
+                'price_data': {
+                    'currency': 'eur',
+                    'product_data': {'name': PEZZI[k]['nome'], 'description': PEZZI[k]['descrizione']},
+                    'unit_amount': PEZZI[k]['prezzo'],
+                },
+                'quantity': resto,
+            })
     if quantita > 1:
         line_items.append({
             'price_data': {
@@ -225,7 +297,7 @@ def crea_ordine():
             success_url=f'{FRONTEND_URL}/placca-nfc-grazie.html?ordine={ordine.slug}',
             cancel_url=f'{FRONTEND_URL}/placca-nfc.html?pagamento=annullato#acquista',
             metadata={'tipo': 'nfc', 'ordine_id': str(ordine.id), 'slug': ordine.slug,
-                      'prodotto_id': f'placca-nfc-{tier}'},
+                      'prodotto_id': f'placca-nfc-{tier}' + ('-kit' if kit else '')},
         )
         ordine.stripe_id = session.id
         db.session.commit()
@@ -289,12 +361,29 @@ def _riga(label, valore):
     return f'<p style="margin:4px 0"><strong>{label}:</strong> {valore}</p>' if valore else ''
 
 
+def _pezzi_testo(ordine):
+    """'2 tag menù (scura), 1 placchetta Wi-Fi (scura)' — o stringa vuota."""
+    etichette = {'menu': ('tag menù', 'tag menù'), 'wifi': ('placchetta Wi-Fi', 'placchette Wi-Fi')}
+    parti = []
+    for k, a in (ordine.articoli or {}).items():
+        n = a.get('quantita', 0)
+        if n and k in etichette:
+            parti.append(f'{n} {etichette[k][0] if n == 1 else etichette[k][1]} ({a.get("variante", "scura")})')
+    return ', '.join(parti)
+
+
 def _email_conferma(ordine, nome):
     try:
         from utils.email import invia_email
         tier = TIERS[ordine.tier]
         tap_url = f'{FRONTEND_URL}/tap.html?p={ordine.slug}'
         personalizzata = ordine.tier != 'base'
+        articoli = ordine.articoli or {}
+        pezzi = _pezzi_testo(ordine)
+        prove = ''.join(_riga(nome, f'<a href="{tap_url}&t={k}">{tap_url}&amp;t={k}</a>')
+                        for k, nome in (('menu', 'Tag menù'), ('wifi', 'Placchetta Wi-Fi')) if k in articoli)
+        wifi = (_riga('Wi-Fi', f'{ordine.wifi_rete}' + (' · password impostata' if ordine.wifi_password else ' · rete aperta'))
+                if 'wifi' in articoli else '')
         prossimo = ('Entro 2 giorni lavorativi ti mandiamo l\'anteprima grafica della placca da approvare; '
                     'dopo il tuo ok stampiamo, programmiamo il tag e spediamo.'
                     if personalizzata else
@@ -308,14 +397,16 @@ def _email_conferma(ordine, nome):
                                           sped.get('provincia')) if x) if sped else ''
         corpo = f"""
         <p>Ciao {nome or ''},</p>
-        <p>grazie: il tuo ordine per <strong>{tier['nome']}</strong> ({ordine.quantita} pz)
+        <p>grazie: il tuo ordine per <strong>{tier['nome']}</strong> ({ordine.quantita} pz){' con ' + pezzi if pezzi else ''}
         per <strong>{ordine.nome_locale}</strong> è confermato.</p>
         <p>{prossimo}</p>
         <div style="background:#f5f2ee;padding:14px 18px;border-left:3px solid #c4622d;margin:18px 0">
           <p style="margin:0 0 6px"><strong>Cosa aprirà il tap</strong></p>
           {links}
+          {wifi}
           <p style="margin:8px 0 0;font-size:13px;color:#666">Pagina del tap: <a href="{tap_url}">{tap_url}</a>
           — puoi già provarla dal telefono.</p>
+          {('<div style="margin-top:8px;font-size:13px;color:#666">' + prove + '</div>') if prove else ''}
         </div>
         {_riga('Spedizione a', indirizzo)}
         <p>Se vuoi cambiare un link o un dettaglio, rispondi a questa email: lo sistemiamo noi.</p>
@@ -332,6 +423,9 @@ def _email_conferma(ordine, nome):
             {_riga('Locale', ordine.nome_locale)}
             {_riga('Versione', tier['nome'] + (' · ' + ordine.variante if ordine.variante else ''))}
             {_riga('Quantità', ordine.quantita)}
+            {_riga('Famiglia del tap', pezzi)}
+            {_riga('Wi-Fi', f'{ordine.wifi_rete} / {ordine.wifi_password or "(aperta)"}' if 'wifi' in articoli else '')}
+            {_riga('Sconto kit', f'{ordine.sconto:.0f}€' if ordine.sconto else '')}
             {_riga('Referente', nome)}{_riga('Email', ordine.email)}{_riga('Telefono', ordine.telefono)}
             {_riga('Spedizione', indirizzo)}
             {links}
@@ -350,11 +444,19 @@ def _email_conferma(ordine, nome):
 
 @nfc_bp.route('/api/nfc/p/<slug>', methods=['GET'])
 def pagina_tap(slug):
+    """Dati della micro-pagina. ?t=menu|wifi = il tap arriva da un pezzo della famiglia."""
     ordine = OrdineNfc.query.filter_by(slug=slug).first()
     if not ordine or ordine.stato == 'annullato':
         return jsonify({'error': 'Placca non trovata'}), 404
+    pezzo = request.args.get('t') if request.args.get('t') in PEZZI else None
+    articoli = ordine.articoli or {}
     if request.args.get('conta') == '1':
-        ordine.tap_count = (ordine.tap_count or 0) + 1
+        if pezzo:
+            conti = dict(ordine.tap_pezzi or {})
+            conti[pezzo] = conti.get(pezzo, 0) + 1
+            ordine.tap_pezzi = conti   # riassegnare: il JSON non traccia le mutazioni
+        else:
+            ordine.tap_count = (ordine.tap_count or 0) + 1
         db.session.commit()
     links = []
     for tipo, url in (('google', ordine.link_google), ('tripadvisor', ordine.link_tripadvisor),
@@ -362,7 +464,9 @@ def pagina_tap(slug):
         if url:
             links.append({'tipo': tipo, 'url': url})
     menu_url = None
-    if ordine.tier == 'personalizzata-menu':
+    # Il tag menù porta al menù; la placca recensioni lo mostra solo nella versione con menù,
+    # altrimenti con un solo link perderebbe il redirect diretto alla recensione.
+    if ordine.tier == 'personalizzata-menu' or (pezzo == 'menu' and 'menu' in articoli):
         if (ordine.allegati or {}).get('menu'):
             menu_url = f'{BACKEND_PUBLIC_URL}/api/nfc/menu/{ordine.slug}'
         elif ordine.menu_link:
@@ -378,6 +482,10 @@ def pagina_tap(slug):
         'colore_primario': ordine.colore_primario or '#c4622d',
         'colore_sfondo': ordine.colore_sfondo or '#2b2d31',
         'testo': ordine.testo_placca or None,
+        'pezzo': pezzo,
+        # la password la vede solo chi ha toccato la placchetta Wi-Fi
+        'wifi': ({'rete': ordine.wifi_rete, 'password': ordine.wifi_password or ''}
+                 if pezzo == 'wifi' and 'wifi' in articoli and ordine.wifi_rete else None),
     })
 
 
@@ -500,7 +608,8 @@ def lista_ordini():
 
 
 CAMPI_MODIFICABILI = ('stato', 'link_google', 'link_tripadvisor', 'link_thefork',
-                      'menu_link', 'note', 'testo_placca', 'telefono', 'referente')
+                      'menu_link', 'note', 'testo_placca', 'telefono', 'referente',
+                      'wifi_rete', 'wifi_password')
 
 
 @nfc_bp.route('/api/nfc/ordini/<int:oid>', methods=['PATCH'])

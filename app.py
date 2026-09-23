@@ -122,6 +122,11 @@ def ensure_db():
                     ('risultati_checklist', 'session_id', 'VARCHAR(64)'),
                     ('prenotazioni', 'link_chiamata', 'VARCHAR(500)'),
                     ('contatti', 'priorita_richiamo', 'BOOLEAN DEFAULT FALSE'),
+                    ('ordini_nfc', 'articoli', 'JSON'),
+                    ('ordini_nfc', 'wifi_rete', 'VARCHAR(100)'),
+                    ('ordini_nfc', 'wifi_password', 'VARCHAR(100)'),
+                    ('ordini_nfc', 'sconto', 'FLOAT'),
+                    ('ordini_nfc', 'tap_pezzi', 'JSON'),
                 ]:
                     try:
                         conn.execute(db.text(
