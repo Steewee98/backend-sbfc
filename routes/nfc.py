@@ -186,9 +186,10 @@ def crea_ordine():
     variante_pezzi = form.get('variante_pezzi') if form.get('variante_pezzi') in ('chiara', 'scura') else 'scura'
     articoli = {k: {'quantita': n, 'variante': variante_pezzi} for k, n in pezzi.items()}
 
-    wifi_rete = (form.get('wifi_rete') or '').strip()[:100]
-    wifi_password = (form.get('wifi_password') or '').strip()[:100]
-    if 'wifi' in pezzi and not wifi_rete:
+    # niente strip: gli spazi in nome rete e password sono caratteri veri
+    wifi_rete = (form.get('wifi_rete') or '')[:100]
+    wifi_password = (form.get('wifi_password') or '')[:100]
+    if 'wifi' in pezzi and not wifi_rete.strip():
         return jsonify({'error': 'Scrivi il nome della rete Wi-Fi ospiti'}), 400
 
     try:
