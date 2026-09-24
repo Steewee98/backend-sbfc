@@ -428,10 +428,13 @@ class RichiestaNfc(db.Model):
     messaggio = db.Column(db.Text, nullable=False)
     stato = db.Column(db.String(20), default='nuova')  # nuova · in_corso · chiusa
     note_interne = db.Column(db.Text)
+    # file mandati col configuratore del menù digitale: {'menu'|'foto'|'logo': {'nome','mime','dati'(base64)}}
+    allegati = db.Column(db.JSON, default=dict)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
+            'allegati': {k: {'nome': v.get('nome'), 'mime': v.get('mime')} for k, v in (self.allegati or {}).items()},
             'id': self.id, 'nome': self.nome, 'nome_locale': self.nome_locale,
             'email': self.email, 'telefono': self.telefono, 'quantita': self.quantita,
             'messaggio': self.messaggio, 'stato': self.stato,

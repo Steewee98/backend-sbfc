@@ -127,6 +127,7 @@ def ensure_db():
                     ('ordini_nfc', 'wifi_password', 'VARCHAR(100)'),
                     ('ordini_nfc', 'sconto', 'FLOAT'),
                     ('ordini_nfc', 'tap_pezzi', 'JSON'),
+                    ('richieste_nfc', 'allegati', 'JSON'),
                 ]:
                     try:
                         conn.execute(db.text(
