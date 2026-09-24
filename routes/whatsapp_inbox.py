@@ -189,9 +189,11 @@ _INBOX_HTML = """<!doctype html>
 <div class="gate" id="gate">
   <div class="card">
     <h2>🔒 Accesso</h2>
-    <p>Inserisci il token admin per aprire l'inbox.</p>
-    <input id="tok" type="password" placeholder="Admin token">
+    <p>Stesse credenziali del gestionale.</p>
+    <input id="usr" type="text" placeholder="Utente" autocomplete="username">
+    <input id="tok" type="password" placeholder="Password" autocomplete="current-password">
     <button onclick="saveTok()">Entra</button>
+    <p id="tokErr" style="color:#c0392b"></p>
   </div>
 </div>
 
@@ -200,12 +202,19 @@ let TOKEN = localStorage.getItem('wa_admin_token') || '';
 let current = null, pollTimer = null;
 const H = () => ({'X-Admin-Token': TOKEN, 'Content-Type':'application/json'});
 
-function saveTok(){
-  const v = document.getElementById('tok').value.trim();
-  if(!v) return;
-  TOKEN = v; localStorage.setItem('wa_admin_token', v);
-  document.getElementById('gate').style.display='none';
-  loadConvs();
+// utente e password vanno al server: la chiave torna indietro solo se sono giusti
+async function saveTok(){
+  const u = document.getElementById('usr').value.trim(), p = document.getElementById('tok').value;
+  const err = document.getElementById('tokErr'); err.textContent = '';
+  if(!u || !p) return;
+  try {
+    const r = await fetch('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:u, password:p})});
+    const d = await r.json();
+    if(!r.ok || !d.token){ err.textContent = d.error || 'Accesso non riuscito'; return; }
+    TOKEN = d.token; localStorage.setItem('wa_admin_token', TOKEN);
+    document.getElementById('gate').style.display='none';
+    loadConvs();
+  } catch(e){ err.textContent = 'Connessione non riuscita: riprova.'; }
 }
 function fmt(iso){
   const d = new Date(iso);

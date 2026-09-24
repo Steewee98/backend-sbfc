@@ -81,6 +81,7 @@ from routes.lead_strumenti import lead_strumenti_bp
 from routes.email_stats import email_stats_bp
 from routes.sequenze import sequenze_bp
 from routes.nfc import nfc_bp
+from routes.admin_auth import admin_auth_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -102,6 +103,7 @@ app.register_blueprint(lead_strumenti_bp)
 app.register_blueprint(email_stats_bp)
 app.register_blueprint(sequenze_bp)
 app.register_blueprint(nfc_bp)
+app.register_blueprint(admin_auth_bp)
 
 
 # Ensure tables exist
