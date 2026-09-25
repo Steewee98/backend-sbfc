@@ -34,6 +34,8 @@ CORS(app, resources={
             "https://www.sbfoodconsulting.com",
             "https://sbfoodconsulting.com",
             "https://sito-sbfc-production.up.railway.app",
+            # Console della rete SB (GitHub Pages): i dati passano solo con la chiave admin
+            "https://axiomlabs-ia.github.io",
             "http://localhost:8080",
             "http://localhost:3000",
             "http://localhost:8090",
@@ -82,6 +84,7 @@ from routes.email_stats import email_stats_bp
 from routes.sequenze import sequenze_bp
 from routes.nfc import nfc_bp
 from routes.admin_auth import admin_auth_bp
+from routes.rete import rete_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -104,6 +107,7 @@ app.register_blueprint(email_stats_bp)
 app.register_blueprint(sequenze_bp)
 app.register_blueprint(nfc_bp)
 app.register_blueprint(admin_auth_bp)
+app.register_blueprint(rete_bp)
 
 
 # Ensure tables exist

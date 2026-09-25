@@ -441,3 +441,39 @@ class RichiestaNfc(db.Model):
             'note_interne': self.note_interne,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class LocaleRete(db.Model):
+    """Un locale della rete SB (consulenza continuativa con console e motore dati).
+
+    Nasce all'incontro iniziale col ristoratore: la scheda compilata dal
+    consulente sta in `scheda` (JSON, sezioni locale/persone/numeri/cucina/
+    formalita/obiettivi) e i file in `allegati` (menù, foto dei turni, ricette).
+    Stato: incontro → avvio → attivo (→ sospeso).
+    """
+    __tablename__ = 'rete_locali'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(200), nullable=False)
+    tipo = db.Column(db.String(40))
+    citta = db.Column(db.String(120))
+    stato = db.Column(db.String(20), default='incontro')
+    consulente = db.Column(db.String(120))
+    scheda = db.Column(db.JSON, default=dict)
+    # {'<chiave>': {'nome','mime','dati'(base64),'caricato'}}
+    allegati = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self, completa=False):
+        d = {
+            'id': self.id, 'nome': self.nome, 'tipo': self.tipo, 'citta': self.citta,
+            'stato': self.stato, 'consulente': self.consulente,
+            'allegati': {k: {'nome': v.get('nome'), 'mime': v.get('mime'), 'caricato': v.get('caricato')}
+                         for k, v in (self.allegati or {}).items()},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if completa:
+            d['scheda'] = self.scheda or {}
+        return d
