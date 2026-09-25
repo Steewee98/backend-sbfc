@@ -23,6 +23,11 @@ app = Flask(__name__)
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///sbfc.db')
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
+# Driver esplicito: le dipendenze non hanno versione fissa e le SQLAlchemy più
+# recenti usano psycopg 3 come predefinito, che qui non è installato (c'è
+# psycopg2-binary). Il 25 set 2026 un deploy è fallito proprio per questo.
+if database_url.startswith('postgresql://'):
+    database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-fallback-key')
