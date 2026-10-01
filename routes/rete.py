@@ -28,11 +28,48 @@ MIME_OK = {'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/he
            'application/vnd.ms-excel', 'text/csv'}
 
 
+def consulente_da_token(tok):
+    """Il token personale di un consulente (dato da /api/rete/login) → il consulente, se ancora attivo."""
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+    from models import ConsulenteRete
+    try:
+        dati = URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt='console-rete').loads(tok, max_age=14 * 24 * 3600)
+    except (BadSignature, SignatureExpired):
+        return None
+    c = db.session.get(ConsulenteRete, dati.get('c'))
+    # la password cambiata invalida i token vecchi: il token porta un pezzo dell'hash
+    return c if c and c.attivo and dati.get('h') == c.password_hash[-12:] else None
+
+
 def admin_required(f):
+    """Le API della rete: la chiave admin di sempre, oppure l'accesso personale di un consulente.
+    In `g.chi` resta chi sta lavorando."""
     @wraps(f)
     def w(*a, **kw):
-        if request.headers.get('X-Admin-Token') != os.environ.get('ADMIN_TOKEN'):
-            return jsonify({'error': 'Non autorizzato'}), 401
+        from flask import g
+        tok = request.headers.get('X-Admin-Token') or ''
+        admin = os.environ.get('ADMIN_TOKEN')
+        if admin and tok == admin:
+            g.chi, g.admin, g.ruolo = 'admin', True, 'admin'
+        else:
+            c = consulente_da_token(tok) if tok else None
+            if not c:
+                return jsonify({'error': 'Non autorizzato'}), 401
+            # la direzione monitora: legge tutto, non cambia niente (il controllo è qui, non solo nella pagina)
+            if c.ruolo == 'direzione' and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+                return jsonify({'error': 'Il portale della direzione è in sola lettura: le modifiche le fanno i consulenti'}), 403
+            g.chi, g.admin, g.ruolo = c.nome, False, c.ruolo
+        return f(*a, **kw)
+    return w
+
+
+def solo_admin(f):
+    """Per le cose che decide solo chi ha la chiave admin (Simone): gli accessi dei consulenti."""
+    @wraps(f)
+    def w(*a, **kw):
+        if not os.environ.get('ADMIN_TOKEN') or request.headers.get('X-Admin-Token') != os.environ.get('ADMIN_TOKEN'):
+            return jsonify({'error': 'Solo l\'amministratore può farlo'}), 403
         return f(*a, **kw)
     return w
 
@@ -148,3 +185,86 @@ def elimina_allegato(lid, chiave):
     l.allegati = alle
     db.session.commit()
     return jsonify(l.to_dict())
+
+
+# ── accessi personali dei consulenti ──
+
+from models import ConsulenteRete  # noqa: E402
+from werkzeug.security import generate_password_hash, check_password_hash  # noqa: E402
+
+
+@rete_bp.route('/api/rete/login', methods=['POST'])
+def login_consulente():
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer
+    from routes.admin_auth import _ip, _bloccato, _errori
+    import time
+    ip = _ip()
+    if _bloccato(ip):
+        return jsonify({'error': 'Troppi tentativi sbagliati. Riprova fra un quarto d\'ora.'}), 429
+    d = request.get_json(silent=True) or {}
+    email = (d.get('email') or '').strip().lower()
+    c = ConsulenteRete.query.filter_by(email=email, attivo=True).first() if email else None
+    if not c or not check_password_hash(c.password_hash, str(d.get('password') or '')):
+        _errori[ip].append(time.time())
+        return jsonify({'error': 'Credenziali non valide'}), 401
+    c.ultimo_accesso = datetime.utcnow()
+    db.session.commit()
+    tok = URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt='console-rete').dumps({'c': c.id, 'h': c.password_hash[-12:]})
+    return jsonify({'token': tok, 'nome': c.nome, 'ruolo': c.ruolo})
+
+
+@rete_bp.route('/api/rete/consulenti', methods=['GET'])
+@solo_admin
+def consulenti():
+    return jsonify([c.to_dict() for c in ConsulenteRete.query.order_by(ConsulenteRete.nome).all()])
+
+
+def _dati_consulente(c, d, nuovo):
+    if 'nome' in d or nuovo:
+        nome = _testo(d.get('nome'), 120)
+        if not nome:
+            return 'Serve il nome'
+        c.nome = nome
+    if 'email' in d or nuovo:
+        e = (d.get('email') or '').strip().lower()[:200]
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', e):
+            return 'Email non valida'
+        if ConsulenteRete.query.filter(ConsulenteRete.email == e, ConsulenteRete.id != (c.id or 0)).first():
+            return 'Email già usata'
+        c.email = e
+    if d.get('password') or nuovo:
+        if len(str(d.get('password') or '')) < 10:
+            return 'La password deve avere almeno 10 caratteri'
+        c.password_hash = generate_password_hash(str(d['password']))
+    if 'attivo' in d:
+        c.attivo = bool(d['attivo'])
+    if 'ruolo' in d or nuovo:
+        ruolo = d.get('ruolo') or 'consulente'
+        if ruolo not in ('consulente', 'direzione'):
+            return 'Ruolo non valido'
+        c.ruolo = ruolo
+    return None
+
+
+@rete_bp.route('/api/rete/consulenti', methods=['POST'])
+@solo_admin
+def crea_consulente():
+    c = ConsulenteRete()
+    err = _dati_consulente(c, request.get_json(silent=True) or {}, True)
+    if err:
+        return jsonify({'error': err}), 400
+    db.session.add(c)
+    db.session.commit()
+    return jsonify(c.to_dict()), 201
+
+
+@rete_bp.route('/api/rete/consulenti/<int:cid>', methods=['PATCH'])
+@solo_admin
+def modifica_consulente(cid):
+    c = ConsulenteRete.query.get_or_404(cid)
+    err = _dati_consulente(c, request.get_json(silent=True) or {}, False)
+    if err:
+        return jsonify({'error': err}), 400
+    db.session.commit()
+    return jsonify(c.to_dict())

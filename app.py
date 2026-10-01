@@ -90,6 +90,9 @@ from routes.sequenze import sequenze_bp
 from routes.nfc import nfc_bp
 from routes.admin_auth import admin_auth_bp
 from routes.rete import rete_bp
+from routes.rete_dati import rete_dati_bp
+from routes.rete_foodcost import rete_fc_bp
+from routes.rete_locale import rete_locale_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -113,6 +116,9 @@ app.register_blueprint(sequenze_bp)
 app.register_blueprint(nfc_bp)
 app.register_blueprint(admin_auth_bp)
 app.register_blueprint(rete_bp)
+app.register_blueprint(rete_dati_bp)
+app.register_blueprint(rete_fc_bp)
+app.register_blueprint(rete_locale_bp)
 
 
 # Ensure tables exist
@@ -139,6 +145,27 @@ def ensure_db():
                     ('ordini_nfc', 'sconto', 'FLOAT'),
                     ('ordini_nfc', 'tap_pezzi', 'JSON'),
                     ('richieste_nfc', 'allegati', 'JSON'),
+                    ('rete_locali', 'impostazioni', 'JSON'),
+                    ('rete_fatture', 'etichette', 'JSON'),
+                    ('rete_persone', 'orario', 'JSON'),
+                    ('rete_persone', 'mansione', 'VARCHAR(40)'),
+                    ('rete_persone', 'reparto', 'VARCHAR(20)'),
+                    ('rete_persone', 'contratto', 'VARCHAR(30)'),
+                    ('rete_persone', 'ore_contratto', 'FLOAT'),
+                    ('rete_persone', 'telefono', 'VARCHAR(30)'),
+                    ('rete_persone', 'assunto_il', 'DATE'),
+                    ('rete_persone', 'note', 'VARCHAR(300)'),
+                    ('rete_locali', 'codice', 'VARCHAR(16)'),
+                    ('rete_consulenti', 'ruolo', "VARCHAR(20) DEFAULT 'consulente'"),
+                ] + [('rete_vendite', c, 'FLOAT') for c in
+                     ('netto', 'iva', 'sconti', 'costo', 'margine', 'resi_quantita', 'resi_incasso')] + [
+                    ('rete_articoli', 'prezzo_stima', 'FLOAT'),
+                    ('rete_ricette', 'automatica', 'BOOLEAN DEFAULT FALSE'),
+                    ('rete_ricette', 'nota', 'VARCHAR(300)'),
+                    ('rete_alias_vendite', 'categoria', 'VARCHAR(40)'),
+                    ('rete_alias_vendite', 'automatico', 'BOOLEAN DEFAULT FALSE'),
+                    ('rete_vendite', 'nomi', 'VARCHAR(400)'),
+                    ('rete_vendite_periodo', 'nomi', 'VARCHAR(400)'),
                 ]:
                     try:
                         conn.execute(db.text(
@@ -250,9 +277,27 @@ def _background_sequenze():
         time.sleep(SEQUENZE_INTERVAL)
 
 
+# --- Avvisi della Rete SB: una volta al giorno, alle 9 di Roma ---
+def _background_avvisi_rete():
+    time.sleep(150)
+    while True:
+        try:
+            with app.app_context():
+                from services.quadro import ora_locale
+                if ora_locale(datetime.utcnow()).hour == 9:
+                    from services.avvisi import giro
+                    fatti = [x for x in giro(invia=True) if x['messaggi']]
+                    if fatti:
+                        print(f"[AVVISI RETE] {len(fatti)} locali avvisati")
+        except Exception as e:
+            print(f"[AVVISI RETE] Errore: {e}")
+        time.sleep(1800)   # ogni mezz'ora; il giro salta i locali già avvisati oggi
+
+
 # Avvia solo in produzione (gunicorn) e solo una volta per processo
 _bg_started = False
-if not app.debug or os.environ.get('FORCE_SYNC'):
+# SBFC_NO_BG=1: niente lavori in sottofondo (test in locale, script)
+if (not app.debug or os.environ.get('FORCE_SYNC')) and not os.environ.get('SBFC_NO_BG'):
     if not _bg_started:
         _bg_started = True
         _sync_thread = threading.Thread(target=_background_sync, daemon=True)
@@ -269,6 +314,9 @@ if not app.debug or os.environ.get('FORCE_SYNC'):
 
         _sequenze_thread = threading.Thread(target=_background_sequenze, daemon=True)
         _sequenze_thread.start()
+
+        threading.Thread(target=_background_avvisi_rete, daemon=True).start()
+        print("[AVVISI RETE] Avviato — alle 9 di Roma")
         print(f"[SEQUENZE] Avviato — controlla ogni {SEQUENZE_INTERVAL}s")
 
 

@@ -1,0 +1,413 @@
+"""Il catalogo dei prodotti di bar, bistrot, pizzeria e cucina: come la cassa li chiama,
+in che categoria vanno e la ricetta standard (grammature di una porzione).
+
+Serve all'analisi delle vendite (services/analisi_vendite.py) per tre cose:
+  1. capire che «Caffe», «Caffè», «CAFFE ESPRESSO» sono lo stesso prodotto;
+  2. dividere l'incasso per categoria (caffetteria, cucina, birre, cocktail…);
+  3. proporre la ricetta, così il food cost delle ricette si vede subito.
+
+Le grammature sono quelle standard di un locale italiano: il consulente le corregge
+in Managing → Ricettario quando le pesa davvero. I prezzi degli ingredienti sono medie
+all'ingrosso 2026, IVA esclusa, e restano **stime** (ArticoloRete.prezzo_stima) finché
+una fattura collegata non dà il prezzo vero.
+
+Le parole si cercano sul nome della voce già normalizzato (minuscole, senza accenti e
+punteggiatura: «spremuta d’arancia» → «spremuta d arancia»). Vince il primo prodotto
+che combacia, quindi le varianti più precise stanno prima di quelle generiche.
+"""
+import re
+
+# ── gli ingredienti: nome, unità (kg | l | pz), prezzo stimato per unità, parole per ritrovarli
+#    tra gli articoli che il locale ha già dalle fatture, peso o volume di un pezzo (per convertire) ──
+ING = {
+    'caffe':        ('Caffè in grani', 'kg', 20.0, r'caff\w* .*grani|grani.*caff|miscela.*bar|caffe macinato', None),
+    'caffe_dek':    ('Caffè decaffeinato', 'kg', 24.0, r'deca|dek', None),
+    'crema_caffe':  ('Preparato crema caffè', 'kg', 8.0, r'crema (di )?caff', None),
+    'ginseng':      ('Preparato ginseng', 'kg', 30.0, r'ginseng', None),
+    'orzo':         ('Orzo solubile', 'kg', 18.0, r'\borzo\b', None),
+    'cioccolata':   ('Preparato cioccolata calda', 'kg', 10.0, r'cioccolat\w* (calda|in tazza)', None),
+    'cacao':        ('Cacao amaro', 'kg', 9.0, r'\bcacao\b', None),
+    'te':           ('Tè in bustine', 'pz', 0.12, r'\bt[eh]+\b.*(bust|filtri)|infus', None),
+    'latte':        ('Latte intero', 'l', 1.10, r'^(?!reso).*\blatte\b(?!.*(soia|senza|cocco|mandorl|condensat|polvere))', ('l', 1.0)),
+    'latte_soia':   ('Bevanda di soia', 'l', 2.0, r'soia', None),
+    'latte_sl':     ('Latte senza lattosio', 'l', 1.5, r'senza lattosio|zymil|accadi', None),
+    'panna':        ('Panna da cucina', 'l', 4.5, r'\bpanna\b', None),
+    'cornetto':     ('Cornetto surgelato', 'pz', 0.32, r'cornett\w* (vuot|classic|semplic|natur)|croissant', ('kg', 0.075)),
+    'cornetto_far': ('Cornetto farcito surgelato', 'pz', 0.42, r'cornett\w* (crema|cioccol|marmell|albicoc|farcit|nutell|pistac)', ('kg', 0.09)),
+    'cornetto_veg': ('Cornetto vegano surgelato', 'pz', 0.45, r'cornett\w* vegan|vegan\w* cornett', ('kg', 0.08)),
+    'cornetto_min': ('Cornetto mignon surgelato', 'pz', 0.16, r'mignon', ('kg', 0.03)),
+    'cornetto_sal': ('Cornetto salato', 'pz', 0.45, r'cornett\w* salat', None),
+    'nutella':      ('Crema spalmabile', 'kg', 9.0, r'nutella|crema (spalmab|nocciol|cacao)', None),
+    'dolce_fetta':  ('Torta o crostata (fetta)', 'pz', 0.70, r'crostat|torta|ciambellon', None),
+    'ciambella':    ('Ciambella o bomba fritta', 'pz', 0.40, r'ciambell[ae]\b|bomb[ae]\b|krapfen', None),
+    'muffin':       ('Muffin', 'pz', 0.45, r'muffin', None),
+    'maritozzo':    ('Maritozzo', 'pz', 0.70, r'maritozz', None),
+    'pasticciotto': ('Pasticciotto', 'pz', 0.50, r'pasticciott', None),
+    'tiramisu':     ('Tiramisù (porzione)', 'pz', 1.00, r'tiramis', None),
+    'biscotti':     ('Biscotti', 'kg', 6.0, r'biscott', None),
+    'preparato_pancake': ('Preparato per pancake e waffle', 'kg', 4.0, r'pancake|waffle', None),
+    'sciroppo':     ('Sciroppo d\'acero', 'l', 12.0, r'sciropp\w* (d )?acero', None),
+    'yogurt':       ('Yogurt bianco', 'kg', 3.0, r'yogurt|yoghurt', None),
+    'granola':      ('Granola', 'kg', 8.0, r'granola|muesli', None),
+    'avena':        ('Fiocchi d\'avena', 'kg', 3.0, r'avena', None),
+    'frutta':       ('Frutta fresca', 'kg', 3.0, r'frutta|fragol|banan|kiwi|mela\b|mele\b', None),
+    'frutti_bosco': ('Frutti di bosco', 'kg', 9.0, r'frutti di bosco|mirtill|lampon', None),
+    'arance':       ('Arance da spremuta', 'kg', 1.3, r'arance|aranc\w* (da )?sprem', None),
+    'pompelmi':     ('Pompelmi', 'kg', 1.8, r'pompelm', None),
+    'centrifuga':   ('Frutta e verdura da centrifuga', 'kg', 2.5, r'carot|sedano|zenzero', None),
+    'uova':         ('Uova', 'pz', 0.25, r'\buov[ao]\b', ('kg', 0.06)),
+    'bacon':        ('Bacon', 'kg', 12.0, r'bacon|pancetta (affumic|a fette)', None),
+    'wurstel':      ('Würstel', 'kg', 6.0, r'wurstel|w rstel|frankfurt', None),
+    'burro':        ('Burro', 'kg', 9.0, r'\bburro\b', None),
+    'pane':         ('Pane', 'kg', 2.8, r'^(?!.*(toast|hamburger|burger|tramezz|pangratt)).*\bpane\b', None),
+    'pane_toast':   ('Pane in cassetta', 'kg', 3.5, r'pan ?carr|pane (per )?toast|pane in cassetta', None),
+    'pane_tramezzino': ('Pane per tramezzini', 'kg', 4.0, r'tramezz', None),
+    'pane_burger':  ('Pane per hamburger', 'pz', 0.45, r'pane\w* .*(hamburger|burger)|bun\b', ('kg', 0.08)),
+    'formaggio':    ('Formaggio a fette', 'kg', 9.0, r'sottilet|emmental|edamer|fontin|formaggio a fette', None),
+    'cheddar':      ('Cheddar', 'kg', 10.0, r'cheddar', None),
+    'formaggi_misti': ('Formaggi misti', 'kg', 14.0, r'gorgonzol|taleggio|provolon|formaggi misti', None),
+    'spalmabile':   ('Formaggio spalmabile', 'kg', 8.0, r'spalmabil|philadelph', None),
+    'cotto':        ('Prosciutto cotto', 'kg', 11.0, r'prosciutto cotto|\bcotto\b', None),
+    'crudo':        ('Prosciutto crudo', 'kg', 22.0, r'prosciutto crudo|\bcrudo\b', None),
+    'mortadella':   ('Mortadella', 'kg', 12.5, r'mortadell', None),
+    'salame':       ('Salame piccante', 'kg', 14.0, r'salam', None),
+    'salsiccia':    ('Salsiccia', 'kg', 9.0, r'salsicc', None),
+    'salumi_misti': ('Salumi misti', 'kg', 16.0, r'salumi misti|affettat', None),
+    'guanciale':    ('Guanciale', 'kg', 14.0, r'guancial', None),
+    'stracciatella': ('Stracciatella', 'kg', 12.0, r'stracciatell', None),
+    'fiordilatte':  ('Mozzarella fiordilatte', 'kg', 7.0, r'fior ?di ?latte|mozzarell(?!.*bufal)', None),
+    'bufala':       ('Mozzarella di bufala', 'kg', 12.0, r'bufal', None),
+    'pecorino':     ('Pecorino romano', 'kg', 16.8, r'pecorin', None),
+    'parmigiano':   ('Parmigiano o grana', 'kg', 18.0, r'parmigian|grana padano|\bgrana\b', None),
+    'salmone':      ('Salmone affumicato', 'kg', 30.0, r'salmone affum', None),
+    'salmone_fresco': ('Salmone fresco', 'kg', 18.0, r'salmone (fresco|filett|norveg)', None),
+    'pesce':        ('Pesce fresco', 'kg', 16.0, r'branzin|orat|pesce|corvin', None),
+    'alici':        ('Alici sott\'olio', 'kg', 25.0, r'alic|acciug', None),
+    'avocado':      ('Avocado', 'kg', 6.0, r'avocad', None),
+    'insalata':     ('Insalata e rucola', 'kg', 5.0, r'insalat|rucol|lattug|iceberg|songino', None),
+    'pomodoro':     ('Pomodori freschi', 'kg', 2.5, r'pomodor\w* (fresc|ramat|insalat)|cuore di bue', None),
+    'pomodorini':   ('Pomodorini', 'kg', 4.0, r'pomodorin|pachino|ciliegin|datterin', None),
+    'pelati':       ('Pomodoro pelato o passata', 'kg', 1.6, r'pelat|passata|polpa di pomod', None),
+    'verdure':      ('Verdure di stagione', 'kg', 3.0, r'zucchin|melanzan|peperon|verdur|cicori|scarol|broccol|friariell|spinac', None),
+    'funghi':       ('Funghi champignon', 'kg', 5.0, r'champign|funghi (?!porcin)', None),
+    'porcini':      ('Funghi porcini surgelati', 'kg', 14.0, r'porcin', None),
+    'cipolla':      ('Cipolle', 'kg', 1.5, r'cipoll', None),
+    'carciofi':     ('Carciofini', 'kg', 9.0, r'carciof', None),
+    'olive':        ('Olive', 'kg', 7.0, r'\boliv[ae]\b', None),
+    'lime':         ('Lime', 'pz', 0.30, r'\blime\b', None),
+    'limoni':       ('Limoni', 'kg', 2.0, r'limon(i|e)\b(?!.*(soda|cello))', None),
+    'menta':        ('Menta fresca', 'kg', 20.0, r'menta', None),
+    'patate':       ('Patate', 'kg', 1.2, r'patat\w* (fresc|a pasta|novell)|\bpatate\b(?!.*(fritt|stick|surg))', None),
+    'patatine':     ('Patatine surgelate', 'kg', 2.5, r'patatin|stick|french fries|patate (fritt|surg)', None),
+    'olio_frittura': ('Olio di semi per friggere', 'l', 2.2, r'olio di semi|olio (per )?frittura|girasole|arachid', None),
+    'olio':         ('Olio extravergine', 'l', 7.5, r'olio (extra|evo)|extravergine', None),
+    'farina':       ('Farina per impasti', 'kg', 0.85, r'farin', None),
+    'farina_mais':  ('Farina di mais precotta', 'kg', 3.0, r'harina|mais precott|pan\b', None),
+    'pasta_fresca': ('Pasta fresca all\'uovo', 'kg', 5.0, r'tonnarell|fettuccin|tagliatell|pappardell|pasta fresca|pasta all uovo', None),
+    'pasta_secca':  ('Pasta secca', 'kg', 1.8, r'penne|spaghett|rigaton|mezze maniche|pasta secca|fusill', None),
+    'ravioli':      ('Ravioli ricotta e spinaci', 'kg', 9.0, r'raviol|tortell', None),
+    'lasagna_sfoglia': ('Sfoglie per lasagna', 'kg', 4.0, r'lasagn|sfogli', None),
+    'riso':         ('Riso', 'kg', 2.0, r'\briso\b|basmati|carnaroli', None),
+    'macinato':     ('Macinato di manzo', 'kg', 10.0, r'macinat', None),
+    'hamburger':    ('Hamburger di manzo', 'kg', 13.0, r'hamburger|burger', None),
+    'manzo':        ('Manzo a strisce', 'kg', 18.0, r'manzo|controfilett|lomo|scamon', None),
+    'maiale':       ('Braciola di maiale', 'kg', 8.0, r'maial|bracio|chuleta|lonza', None),
+    'pollo':        ('Petto di pollo', 'kg', 9.0, r'pett\w* di pollo|pollo (a )?fette|pollo\b(?!.*(ali|wing))', None),
+    'ali_pollo':    ('Ali di pollo', 'kg', 6.0, r'\bali\b.*pollo|wings|alett', None),
+    'suppli':       ('Supplì', 'pz', 0.55, r'suppl', None),
+    'crocchetta':   ('Crocchetta di patate', 'pz', 0.30, r'crocchett|croquet', None),
+    'pangrattato':  ('Pangrattato', 'kg', 2.5, r'pangrattat', None),
+    'maionese':     ('Maionese e salse', 'kg', 4.5, r'maiones|ketchup|salse', None),
+    'salsa_caesar': ('Salsa caesar', 'kg', 7.0, r'caesar', None),
+    'pesto':        ('Pesto', 'kg', 12.0, r'pesto', None),
+    'purea':        ('Purea di frutta', 'kg', 6.0, r'pure[ae] di (pesca|frutta)', None),
+    # bevande
+    'acqua_05':     ('Acqua 0,5 l', 'pz', 0.18, r'acqua.*(0 5|50 ?cl)|nepi', None),
+    'acqua_075':    ('Acqua 0,75 l vetro', 'pz', 0.35, r'acqua.*(0 75|75 ?cl)|pellegrin|panna\b.*acqua', None),
+    'acqua_1':      ('Acqua 1 l', 'pz', 0.40, r'acqua.*(1 ?l|1 litro|100 ?cl)|ferrarell', None),
+    'lattina':      ('Bibita in lattina', 'pz', 0.55, r'coca|fanta|sprite|lattin', None),
+    'te_freddo':    ('Tè freddo in bottiglia', 'pz', 0.55, r'estath|the (pesca|limone)|te freddo', None),
+    'succo':        ('Succo di frutta 200 ml', 'pz', 0.45, r'succ|yoga|santal|skipper', None),
+    'red_bull':     ('Red Bull', 'pz', 1.10, r'red ?bull', None),
+    'mixer':        ('Mixer (tonica, lemon soda, chinotto)', 'pz', 0.55, r'schwepp|tonic|lemon ?soda|chinott|cedrat|ginger|kinley|lurisia', None),
+    'aperitivo_analcolico': ('Aperitivo analcolico', 'pz', 0.55, r'crodin|san ?bitter|sanbitter', None),
+    'campari_soda': ('Campari soda', 'pz', 0.75, r'campari ?soda', None),
+    'birra_fusto':  ('Birra alla spina (fusto)', 'l', 3.2, r'fust|spina', None),
+    'birra_33':     ('Birra in bottiglia 33 cl', 'pz', 0.85, r'birr\w*.*33|peroni|heineken|moretti|corona|messina|ichnusa|tennent|raffo', None),
+    'birra_66':     ('Birra in bottiglia 66 cl', 'pz', 1.20, r'birr\w*.*66|66 ?cl', None),
+    'vino':         ('Vino della casa', 'l', 5.5, r'\bvino\b|vini\b|bianco|rosso|rosato', ('pz', 0.75)),
+    'prosecco':     ('Prosecco', 'l', 6.0, r'prosecc|spumant|bollicin', ('pz', 0.75)),
+    'aperol':       ('Aperol', 'l', 14.0, r'aperol|aperitivo (all )?aranc', ('pz', 1.0)),
+    'campari':      ('Campari bitter', 'l', 16.0, r'campari(?! ?soda)|bitter', ('pz', 1.0)),
+    'vermouth':     ('Vermouth rosso', 'l', 9.0, r'vermouth|martini rosso', ('pz', 1.0)),
+    'gin':          ('Gin', 'l', 18.0, r'\bgin\b', ('pz', 0.7)),
+    'gin_premium':  ('Gin premium', 'l', 38.0, r'gin (mare|premium|hendrick|monkey)', ('pz', 0.7)),
+    'vodka':        ('Vodka', 'l', 15.0, r'vodka', ('pz', 0.7)),
+    'rum':          ('Rum', 'l', 16.0, r'\brum\b|bacardi|havana', ('pz', 0.7)),
+    'malibu':       ('Malibu', 'l', 14.0, r'malibu', ('pz', 0.7)),
+    'whisky':       ('Whisky', 'l', 25.0, r'whisk', ('pz', 0.7)),
+    'amaro':        ('Amaro', 'l', 14.0, r'amaro|montenegr|jager|averna|lucano', ('pz', 0.7)),
+    'liquore':      ('Liquori (limoncello, sambuca, grappa)', 'l', 13.0, r'limoncell|sambuc|grappa|liquor|baileys|amaretto', ('pz', 0.7)),
+    'pisco':        ('Pisco', 'l', 22.0, r'pisco', ('pz', 0.7)),
+    'sciroppo_sambuco': ('Sciroppo di sambuco', 'l', 10.0, r'sambuco|st germain|fiori di', None),
+    'soda':         ('Acqua tonica e soda (sifone)', 'l', 1.0, r'\bsoda\b(?!.*(lemon|campari))', None),
+    'zucchero':     ('Zucchero', 'kg', 1.2, r'zuccher', None),
+}
+
+# ── i prodotti: (id, nome, categoria, parole, ricetta [(ingrediente, quantità per porzione)], opzioni) ──
+# opzioni: max / min = prezzo medio (IVA compresa) entro cui vale; formula = ricetta stimata di un menù;
+#          fuori = fuori dal food cost (coperto, servizio); chiarire = voce generica, la sa solo il locale
+CAFFETTERIA, COLAZIONE, CUCINA, PIZZERIA, FORMULE = 'Caffetteria', 'Colazione e dolci', 'Cucina', 'Pizzeria', 'Aperitivi e formule'
+BEVANDE, BIRRE, VINI, COCKTAIL, SERVIZIO, RIVENDITA, CHIARIRE = ('Bevande', 'Birre', 'Vini e bollicine', 'Cocktail e alcolici',
+                                                                 'Coperto e servizio', 'Rivendita', 'Da chiarire')
+CAPP = [('caffe', .007), ('latte', .15)]
+SPRITZ = [('aperol', .06), ('prosecco', .09), ('soda', .03), ('arance', .03)]
+PIZZA = [('farina', .25), ('pelati', .08), ('fiordilatte', .12), ('olio', .01)]
+PIZZETTA = [('farina', .12), ('pelati', .04), ('fiordilatte', .05)]
+BURGER = [('hamburger', .18), ('pane_burger', 1), ('insalata', .02), ('pomodoro', .03), ('maionese', .02)]
+FRITTI = [('patatine', .15), ('olio_frittura', .02)]
+PASTA = [('pasta_fresca', .13)]
+
+PRODOTTI = [
+    # ── coperto, servizio e voci generiche: prima di tutto, così «menu» o «drink» non diventano un piatto ──
+    ('coperto', 'Coperto', SERVIZIO, r'\bcopert', [], {'fuori': True}),
+    ('servizio', 'Servizio', SERVIZIO, r'^servizio|mancia|^paga\b', [], {'fuori': True}),
+    ('varie', 'Varie', CHIARIRE, r'^(varie|a scelta|drink|menu|promo\w*( \d+x\d+)?|completo|dolce|pizza( \d)?|panino|uova|apple|mostro)$', [], {'chiarire': True}),
+    # ── caffetteria: le varianti precise prima del caffè semplice ──
+    ('cappuccino_soia', 'Cappuccino di soia', CAFFETTERIA, r'capp\w*.*soia|soia.*capp', [('caffe', .007), ('latte_soia', .15)], {}),
+    ('cappuccino_sl', 'Cappuccino senza lattosio', CAFFETTERIA, r'capp\w*.*(senza lattosio|non latt)', [('caffe', .007), ('latte_sl', .15)], {}),
+    ('cappuccino_dek', 'Cappuccino decaffeinato', CAFFETTERIA, r'capp\w*.*(dek|deca|deka)', [('caffe_dek', .007), ('latte', .15)], {}),
+    ('cappuccino_orzo', 'Cappuccino d\'orzo o ginseng', CAFFETTERIA, r'capp\w*.*(orzo|ginseng)', [('ginseng', .012), ('latte', .15)], {}),
+    ('cappuccino_freddo', 'Cappuccino freddo', CAFFETTERIA, r'capp\w*.*fredd', CAPP, {}),
+    ('cappuccino_grande', 'Cappuccino grande', CAFFETTERIA, r'capp\w*.*grande|doppio capp', [('caffe', .014), ('latte', .25)], {}),
+    ('cappuccino', 'Cappuccino', CAFFETTERIA, r'^capp(uccino|u)?$|\bcappuccino\b', CAPP, {}),
+    ('caffelatte_soia', 'Caffellatte di soia', CAFFETTERIA, r'caffe ?latte.*soia', [('caffe', .007), ('latte_soia', .2)], {}),
+    ('caffelatte_dek', 'Caffellatte decaffeinato', CAFFETTERIA, r'caffe ?latte.*(dek|deca)|(dek|deka) latte', [('caffe_dek', .007), ('latte', .2)], {}),
+    ('latte_macchiato', 'Latte macchiato', CAFFETTERIA, r'latte macchiato', [('caffe', .007), ('latte', .2)], {}),
+    ('caffelatte', 'Caffellatte', CAFFETTERIA, r'caffe ?latte', [('caffe', .007), ('latte', .2)], {}),
+    ('latte_cacao', 'Latte e cacao', CAFFETTERIA, r'latte (e )?cacao', [('latte', .2), ('cacao', .01)], {}),
+    ('latte', 'Latte', CAFFETTERIA, r'^latte( bianco| caldo| freddo)?$', [('latte', .2)], {}),
+    ('crema_caffe', 'Crema di caffè', CAFFETTERIA, r'crema (di )?caffe', [('crema_caffe', .06)], {}),
+    ('marocchino', 'Marocchino', CAFFETTERIA, r'marocchin', [('caffe', .007), ('latte', .03), ('cacao', .003)], {}),
+    ('caffe_freddo', 'Caffè freddo o shakerato', CAFFETTERIA, r'caffe (fredd|shak|shek)', [('caffe', .014), ('zucchero', .01)], {}),
+    ('caffe_corretto', 'Caffè corretto', CAFFETTERIA, r'caffe corrett', [('caffe', .007), ('liquore', .01)], {}),
+    ('caffe_doppio', 'Caffè doppio', CAFFETTERIA, r'caffe doppio|doppio caffe', [('caffe', .014)], {}),
+    ('caffe_dek', 'Caffè decaffeinato', CAFFETTERIA, r'^(caffe )?(dek|deka|deca|decaffeinato)$|caffe (dek|deka|deca|decaffeinato)', [('caffe_dek', .007)], {}),
+    ('americano_grande', 'Caffè americano grande', CAFFETTERIA, r'^americano grande$', [('caffe', .014)], {'max': 5}),
+    ('americano', 'Caffè americano', CAFFETTERIA, r'^(caffe )?americano$', [('caffe', .007)], {'max': 4.5}),
+    ('affogato', 'Affogato al caffè', CAFFETTERIA, r'affo[gc]?ato', [('caffe', .007)], {}),
+    ('caffe', 'Caffè', CAFFETTERIA, r'^(caffe|caffe espresso|espresso|caffe al banco|caffe tavolo)$', [('caffe', .007)], {}),
+    ('ginseng_grande', 'Ginseng grande', CAFFETTERIA, r'ginseng grande', [('ginseng', .02)], {}),
+    ('ginseng', 'Ginseng', CAFFETTERIA, r'ginseng', [('ginseng', .012)], {}),
+    ('orzo_grande', 'Orzo grande', CAFFETTERIA, r'orzo grande', [('orzo', .014)], {}),
+    ('orzo', 'Orzo', CAFFETTERIA, r'\borzo\b', [('orzo', .008)], {}),
+    ('cioccolata', 'Cioccolata calda', CAFFETTERIA, r'cioccolata calda|cioccolata in tazza', [('cioccolata', .03), ('latte', .15)], {}),
+    ('te_caldo', 'Tè caldo', CAFFETTERIA, r'^(the|te|tea)( caldo| della casa)?$|^(te|the) caldo$|tisana|infuso', [('te', 1)], {}),
+    # ── colazione e dolci ──
+    ('colazione_italiana', 'Colazione all\'italiana', FORMULE, r'colazione all italiana', CAPP + [('cornetto', 1), ('arance', .4)], {'formula': True}),
+    ('colazione_dolce', 'Colazione dolce', FORMULE, r'colazione dolce|colazione french toast', CAPP + [('preparato_pancake', .1), ('latte', .1), ('nutella', .03), ('frutta', .05), ('arance', .4)], {'formula': True}),
+    ('colazione_salata', 'Colazione salata', FORMULE, r'colazione salata|salata uova|^colazion\w*$', CAPP + [('uova', 2), ('bacon', .05), ('pane_toast', .06), ('arance', .4)], {'formula': True}),
+    ('cornetto_vegano', 'Cornetto vegano', COLAZIONE, r'cornett\w* vegan\w*|^vegano farcito$', [('cornetto_veg', 1)], {}),
+    ('cornetto_mignon', 'Cornetto mignon', COLAZIONE, r'^(cornett\w* )?mignon', [('cornetto_min', 1)], {}),
+    ('cornetto_salato', 'Cornetto salato', COLAZIONE, r'cornett\w* salat', [('cornetto_sal', 1), ('cotto', .02), ('formaggio', .02)], {}),
+    ('cornetto_farcito', 'Cornetto farcito', COLAZIONE, r'cornett\w* (farcit|nutella|crema|pistac|cioccol|marmell|di nutella)|brioche nutella|bomba nutella|^nutella$|pistaccio', [('cornetto_far', 1)], {}),
+    ('cornetto', 'Cornetto', COLAZIONE, r'^corn(etti|etto|netti)?( classic[oi]| piccol[oi]| grande)?$|^cornetti classici$', [('cornetto', 1)], {}),
+    ('ciambellone', 'Ciambellone', COLAZIONE, r'ciambell?one', [('dolce_fetta', 1)], {}),
+    ('ciambella', 'Ciambella', COLAZIONE, r'ciambell[ae]|bomb[ae]\b', [('ciambella', 1)], {}),
+    ('torta', 'Torta del giorno', COLAZIONE, r'torta|crostat|tartalet', [('dolce_fetta', 1)], {}),
+    ('muffin', 'Muffin', COLAZIONE, r'muffin|maffin', [('muffin', 1)], {}),
+    ('maritozzo', 'Maritozzo', COLAZIONE, r'maritozz', [('maritozzo', 1)], {}),
+    ('pasticciotto', 'Pasticciotto', COLAZIONE, r'pasticciott', [('pasticciotto', 1)], {}),
+    ('tiramisu', 'Tiramisù', COLAZIONE, r'tiramis', [('tiramisu', 1)], {}),
+    ('biscotti', 'Biscotti', COLAZIONE, r'biscott|galletit|galleta', [('biscotti', .03)], {}),
+    ('pancake', 'Pancake', COLAZIONE, r'pancake', [('preparato_pancake', .1), ('latte', .1), ('nutella', .03), ('frutta', .05)], {}),
+    ('waffle_salato', 'Waffle con bacon e uova', COLAZIONE, r'waffle.*bacon', [('preparato_pancake', .1), ('bacon', .05), ('uova', 2)], {}),
+    ('waffle', 'Waffle', COLAZIONE, r'waffle', [('preparato_pancake', .1), ('latte', .08), ('nutella', .03), ('frutta', .05)], {}),
+    ('french_toast', 'French toast', COLAZIONE, r'french toast', [('pane_toast', .08), ('uova', 1), ('latte', .05), ('frutti_bosco', .04), ('sciroppo', .02)], {}),
+    ('yogurt_bowl', 'Bowl di yogurt', COLAZIONE, r'bow\w* (di )?yogurt|yogurt', [('yogurt', .2), ('granola', .04), ('frutta', .08)], {}),
+    ('porridge', 'Porridge', COLAZIONE, r'porridge', [('avena', .06), ('latte', .2), ('frutta', .05)], {}),
+    ('macedonia', 'Macedonia di frutta', COLAZIONE, r'macedonia', [('frutta', .25)], {}),
+    # ── cucina ──
+    ('uova_bacon', 'Uova strapazzate con bacon', CUCINA, r'uova strapazzat\w* (con )?bacon', [('uova', 3), ('bacon', .06), ('pane', .06), ('burro', .01)], {}),
+    ('uova_wurstel', 'Uova strapazzate con würstel', CUCINA, r'uova strapazzat\w* (con )?wurstel', [('uova', 3), ('wurstel', .1), ('pane', .06), ('burro', .01)], {}),
+    ('omelette_veg', 'Omelette vegetariana', CUCINA, r'omelette vegetarian', [('uova', 3), ('verdure', .1), ('pane', .05)], {}),
+    ('omelette', 'Omelette classica', CUCINA, r'omelette', [('uova', 3), ('formaggio', .04), ('cotto', .04), ('pane', .05)], {}),
+    ('toast_salmone', 'Toast al salmone', CUCINA, r'toast (al )?salmone|focaccia salmone', [('pane_toast', .08), ('salmone', .06), ('spalmabile', .03), ('insalata', .02)], {}),
+    ('toast_avocado', 'Toast uovo e avocado', CUCINA, r'to?a?st.*(avocado|ovocado)|avocat', [('pane_toast', .08), ('uova', 1), ('avocado', .08)], {}),
+    ('toast', 'Toast cotto e formaggio', CUCINA, r'toast|^cotto$|pan con jamon', [('pane_toast', .08), ('cotto', .04), ('formaggio', .04)], {}),
+    ('club_sandwich', 'Maxi club sandwich', CUCINA, r'club|sandwich|sndwich', [('pane_toast', .12), ('pollo', .1), ('bacon', .04), ('uova', 1), ('insalata', .02), ('pomodoro', .05), ('maionese', .02)] + FRITTI, {}),
+    ('tramezzino', 'Tramezzino', CUCINA, r'tramezz', [('pane_tramezzino', .06), ('cotto', .03), ('maionese', .01)], {}),
+    ('bruschetta_salmone', 'Bruschetta con salmone e stracciatella', CUCINA, r'bruschett\w*.*salmone', [('pane', .08), ('salmone', .04), ('stracciatella', .05)], {}),
+    ('bruschetta_alici', 'Bruschetta con stracciatella e alici', CUCINA, r'bruschett\w*.*alic', [('pane', .08), ('stracciatella', .05), ('alici', .015)], {}),
+    ('bruschetta_pesto', 'Bruschetta al pesto', CUCINA, r'bruschett\w*.*pesto', [('pane', .08), ('pesto', .02), ('pomodorini', .05)], {}),
+    ('bruschette_tris', 'Tris di bruschette', CUCINA, r'tris di bruschett', [('pane', .15), ('pomodoro', .1), ('stracciatella', .05), ('olio', .015)], {}),
+    ('bruschetta', 'Bruschetta al pomodoro', CUCINA, r'bruschett', [('pane', .08), ('pomodoro', .08), ('olio', .01)], {}),
+    ('tagliere', 'Tagliere di salumi e formaggi', CUCINA, r'^taglier\w*(?!.*pizza)', [('salumi_misti', .12), ('formaggi_misti', .1), ('pane', .08)], {}),
+    ('carbonara', 'Tonnarelli alla carbonara', CUCINA, r'carbonara(?!.*suppl)', PASTA + [('guanciale', .05), ('uova', 2), ('pecorino', .03)], {'min': 6}),
+    ('cacio_pepe', 'Tonnarelli cacio e pepe', CUCINA, r'cacio e pepe', PASTA + [('pecorino', .05)], {}),
+    ('gricia', 'Tonnarelli alla gricia', CUCINA, r'gricia', PASTA + [('guanciale', .06), ('pecorino', .03)], {}),
+    ('amatriciana', 'Tonnarelli all\'amatriciana', CUCINA, r'^(tonnarelli |bucatini )?(all )?amatriciana$|tonnarelli all amatriciana', PASTA + [('guanciale', .05), ('pelati', .1), ('pecorino', .02)], {}),
+    ('fett_ragu', 'Fettuccine al ragù', CUCINA, r'fettuccin\w*.*(ragu|carne)|fettucine con carne', PASTA + [('macinato', .08), ('pelati', .08), ('parmigiano', .01)], {}),
+    ('fett_salmone', 'Fettuccine al salmone', CUCINA, r'fettuccin\w*.*salmone', PASTA + [('salmone', .06), ('panna', .05)], {}),
+    ('fett_alfredo', 'Fettuccine Alfredo', CUCINA, r'alfredo', PASTA + [('burro', .03), ('parmigiano', .04)], {}),
+    ('fett_porcini', 'Fettuccine ai funghi porcini', CUCINA, r'fettuccin\w*.*porcin', PASTA + [('porcini', .08), ('panna', .03)], {}),
+    ('fett_polpette', 'Fettuccine al pomodoro con polpette', CUCINA, r'fettuccin\w*.*polpett', PASTA + [('pelati', .1), ('macinato', .1)], {}),
+    ('pasta_pomodoro', 'Pasta al pomodoro e basilico', CUCINA, r'(penne|tonnarelli|pasta|spaghetti)\w* (al )?pomodoro', [('pasta_secca', .1), ('pelati', .12), ('olio', .01)], {}),
+    ('pasta_varie', 'Pasta del giorno', CUCINA, r'^pasta( al olio| zucchine| fredda)?$|pasta fredda|pasta zucchine|pasta al olio', [('pasta_secca', .1), ('verdure', .08), ('olio', .015)], {}),
+    ('lasagna', 'Lasagna alla bolognese', CUCINA, r'lasagn', [('lasagna_sfoglia', .08), ('macinato', .07), ('pelati', .08), ('latte', .08), ('parmigiano', .02), ('fiordilatte', .03)], {}),
+    ('cannelloni', 'Cannelloni', CUCINA, r'cannellon', [('lasagna_sfoglia', .08), ('macinato', .07), ('pelati', .08), ('parmigiano', .02)], {}),
+    ('ravioli', 'Ravioli ricotta e spinaci', CUCINA, r'raviol', [('ravioli', .2), ('burro', .02), ('parmigiano', .01)], {}),
+    ('polpette_porcini', 'Polpette ai funghi porcini', CUCINA, r'polpett\w*.*porcin', [('macinato', .15), ('porcini', .05), ('panna', .03), ('pane', .02)], {}),
+    ('polpette_amatriciana', 'Polpette all\'amatriciana', CUCINA, r'polpett\w*.*amatrician', [('macinato', .15), ('guanciale', .03), ('pelati', .1), ('pane', .02)], {}),
+    ('polpette', 'Polpette al sugo', CUCINA, r'polpett', [('macinato', .15), ('pelati', .1), ('pane', .02), ('uova', .5)], {}),
+    ('caesar', 'Caesar salad', CUCINA, r'caesar|^cesare$', [('insalata', .12), ('pollo', .12), ('parmigiano', .02), ('pane', .02), ('salsa_caesar', .03)], {}),
+    ('tagliata_pollo', 'Tagliata di pollo', CUCINA, r'tagliata di pollo|pollo a la plancha|pollo alla piastra', [('pollo', .25), ('insalata', .03), ('pomodorini', .05)], {}),
+    ('pollo_porcini', 'Scaloppine di pollo ai porcini', CUCINA, r'scaloppin\w*.*porcin', [('pollo', .18), ('porcini', .05), ('farina', .01), ('burro', .01)], {}),
+    ('pollo_limone', 'Scaloppine o cotoletta di pollo al limone', CUCINA, r'(scaloppin|cotolett)\w*.*limone|scaloppin', [('pollo', .18), ('farina', .01), ('burro', .01), ('limoni', .03)], {}),
+    ('thai_pollo', 'Pollo thai con verdure', CUCINA, r'thai', [('pollo', .15), ('verdure', .15), ('riso', .08)], {}),
+    ('pollo_patatine', 'Pollo con patatine', CUCINA, r'pollo (\+ |con )?patatin', [('pollo', .2)] + FRITTI, {}),
+    ('pollo_broaster', 'Pollo broaster', CUCINA, r'broaster|broster', [('pollo', .35), ('farina', .03), ('olio_frittura', .03)] + FRITTI, {}),
+    ('ali_pollo', 'Alette di pollo con patatine', CUCINA, r'chicken wings|alitas|alett', [('ali_pollo', .3)] + FRITTI, {}),
+    ('salmone_piatto', 'Salmone', CUCINA, r'^salmone$', [('salmone_fresco', .18), ('verdure', .1)], {}),
+    ('pesce_fritto', 'Pesce fritto', CUCINA, r'orata|pescado|pesce', [('pesce', .35), ('farina', .02), ('olio_frittura', .03)], {}),
+    ('cheesebacon', 'Cheesebaconburger', CUCINA, r'cheese ?bacon ?burger', BURGER + [('cheddar', .03), ('bacon', .03)] + FRITTI, {}),
+    ('cheeseburger', 'Cheeseburger', CUCINA, r'cheese ?burger', BURGER + [('cheddar', .03)] + FRITTI, {}),
+    ('hamburger_piatto', 'Hamburger al piatto con patate', CUCINA, r'hamburger al piatto', [('hamburger', .2), ('patate', .2), ('insalata', .03)], {}),
+    ('hamburger', 'Hamburger classico', CUCINA, r'^(?!formula).*hamburg', BURGER + FRITTI, {}),
+    ('wurstel_patatine', 'Würstel e patatine', CUCINA, r'wurstel (e )?patatin|salchipapa', [('wurstel', .15)] + FRITTI, {}),
+    ('patatine_bacon', 'Patatine con bacon', CUCINA, r'patatin\w*.*bacon', [('patatine', .2), ('bacon', .04), ('olio_frittura', .02)], {}),
+    ('patatine', 'Patatine fritte', CUCINA, r'patatin', [('patatine', .2), ('olio_frittura', .02)], {}),
+    ('patate_salsiccia', 'Patate e salsiccia', CUCINA, r'patate (e )?salsicc', [('patate', .2), ('salsiccia', .15)], {}),
+    ('patate_forno', 'Patate al forno', CUCINA, r'patate al forno', [('patate', .25), ('olio', .015)], {}),
+    ('contorno', 'Verdure di contorno', CUCINA, r'verdure|cicoria|scarola|broccol|friariell|insalata|porri', [('verdure', .25), ('olio', .015)], {}),
+    ('pane', 'Pane', CUCINA, r'^pane$', [('pane', .08)], {}),
+    ('caprese', 'Caprese', CUCINA, r'caprese', [('bufala', .125), ('pomodoro', .12), ('olio', .01)], {}),
+    ('suppli', 'Supplì', CUCINA, r'suppl', [('suppli', 1)], {}),
+    ('crocchetta', 'Crocchetta di patate', CUCINA, r'crocchett|croquet', [('crocchetta', 1)], {}),
+    ('porchetta', 'Porchetta e friarielli', CUCINA, r'porchett', [('pane', .1), ('salumi_misti', .08), ('verdure', .06)], {}),
+    # cucina latina
+    ('lomo_saltado', 'Lomo saltado', CUCINA, r'lomo', [('manzo', .2), ('riso', .08), ('cipolla', .05), ('pomodoro', .05)] + FRITTI, {}),
+    ('ceviche', 'Ceviche', CUCINA, r'ceviche|leche de tigre', [('pesce', .2), ('lime', 2), ('cipolla', .05)], {}),
+    ('arroz_chaufa', 'Arroz chaufa', CUCINA, r'^arroz|chaufa', [('riso', .1), ('pollo', .12), ('uova', 1), ('verdure', .05)], {}),
+    ('chuleta', 'Chuleta di maiale', CUCINA, r'chuleta', [('maiale', .25), ('riso', .08), ('patate', .15)], {}),
+    ('empanadas', 'Empanadas (2 pezzi)', CUCINA, r'em\w*nadas?\b', [('farina', .12), ('pollo', .1), ('olio_frittura', .03)], {}),
+    ('arepa', 'Arepa', CUCINA, r'arepa', [('farina_mais', .08), ('manzo', .06)], {}),
+    ('tequenos', 'Tequeños', CUCINA, r'teque', [('farina', .1), ('formaggio', .1), ('olio_frittura', .03)], {}),
+    ('pabellon', 'Pabellón', CUCINA, r'pabell', [('manzo', .15), ('riso', .08)], {}),
+    # ── pizzeria e focacce ──
+    ('taglio_drink', 'Taglio di pizza e drink', FORMULE, r'taglio di pizza', PIZZETTA + [('lattina', 1)], {'formula': True}),
+    ('margherita_cotto', 'Margherita con prosciutto cotto', PIZZERIA, r'margherita (con )?(prosciutto )?cotto', PIZZA + [('cotto', .05)], {}),
+    ('margherita_funghi', 'Margherita con funghi', PIZZERIA, r'margherita (con )?funghi', PIZZA + [('funghi', .06)], {}),
+    ('margherita', 'Margherita', PIZZERIA, r'^(pizza )?marg(h)?erita$|^margarita$', PIZZA, {'min': 5}),
+    ('marinara', 'Marinara', PIZZERIA, r'^marinara', [('farina', .25), ('pelati', .1), ('olio', .015)], {}),
+    ('diavola', 'Diavola', PIZZERIA, r'diavola', PIZZA + [('salame', .05)], {}),
+    ('capricciosa', 'Capricciosa', PIZZERIA, r'capricciosa', PIZZA + [('cotto', .04), ('funghi', .04), ('carciofi', .03), ('olive', .015)], {}),
+    ('quattro_formaggi', 'Quattro formaggi', PIZZERIA, r'4 ?formaggi|quattro formaggi', PIZZA + [('formaggi_misti', .08)], {}),
+    ('vegetariana', 'Vegetariana', PIZZERIA, r'vegetarian|verdura', PIZZA + [('verdure', .1)], {}),
+    ('boscaiola', 'Boscaiola', PIZZERIA, r'boscaiol|funghi e salsicc', PIZZA + [('funghi', .05), ('salsiccia', .05)], {}),
+    ('napoli', 'Napoli', PIZZERIA, r'^napoli', PIZZA + [('alici', .02)], {}),
+    ('bufala_pachino', 'Bufala e pachino', PIZZERIA, r'bufala (e )?pachino|buf ?pachino|^buf ', [('farina', .25), ('pelati', .08), ('bufala', .12), ('pomodorini', .08)], {}),
+    ('crudo_bufala', 'Crudo e bufala', PIZZERIA, r'crudo (e )?bufala|salmone (e )?bufala', [('farina', .25), ('bufala', .12), ('crudo', .05)], {}),
+    ('crudo_stracciatella', 'Crudo e stracciatella', PIZZERIA, r'crudo (e )?stracciatell', [('farina', .2), ('crudo', .06), ('stracciatella', .1)], {}),
+    ('mortadella_stracc', 'Mortadella e stracciatella', PIZZERIA, r'mortadell\w* (e )?stracciatell', [('farina', .2), ('mortadella', .06), ('stracciatella', .1)], {}),
+    ('crostino', 'Crostino', PIZZERIA, r'^crostino', PIZZA + [('cotto', .05)], {}),
+    ('rustica', 'Rustica romana', PIZZERIA, r'rustica|porcini provola', PIZZA + [('salsiccia', .05), ('funghi', .04)], {}),
+    ('pizza_varie', 'Pizza (altre)', PIZZERIA, r'^pizza (?!combo)(con |diavola|\w+)|pedazo|^classic[ao]$|^mera$|margarita con carne', PIZZA + [('salame', .03)], {}),
+    ('focaccia', 'Focaccia', PIZZERIA, r'^foc+a?c+i[ae]$|^focacce', [('farina', .2), ('olio', .02)], {}),
+    # ── aperitivi e formule (ricette stimate: dipendono da cosa il locale mette dentro) ──
+    ('aperipizza', 'Aperipizza', FORMULE, r'aperipizza|prosecco pizza|tagliere pizza', SPRITZ + PIZZETTA, {'formula': True}),
+    ('aperifritti', 'Aperifritti', FORMULE, r'aperifritt', SPRITZ + FRITTI + [('suppli', 1), ('crocchetta', 1)], {'formula': True}),
+    ('aperitagliere', 'Aperitagliere', FORMULE, r'aperitaglier', SPRITZ + [('salumi_misti', .06), ('formaggi_misti', .05), ('pane', .05)], {'formula': True}),
+    ('aperifocaccia', 'Aperifocaccia', FORMULE, r'aperifocacc', SPRITZ + [('farina', .15), ('crudo', .03), ('olio', .01)], {'formula': True}),
+    ('happy_hour', 'Happy hour', FORMULE, r'happy ?h\w*', SPRITZ + [('patatine', .08), ('farina', .08)], {'formula': True}),
+    ('formula_hamburger', 'Formula hamburger', FORMULE, r'formula hamburger|hamburger \+', BURGER + [('cheddar', .03), ('lattina', 1)] + FRITTI, {'formula': True}),
+    ('formula_pizza', 'Formula pizza', FORMULE, r'(formula|combo|menu) pizza|pizza combo', PIZZA + [('lattina', 1)], {'formula': True}),
+    ('formula_pranzo', 'Formula pranzo', FORMULE, r'formula pranzo|menu da 1\d|polpette ?\+|pollo ?\+', PASTA + [('pelati', .1), ('parmigiano', .01), ('acqua_05', 1), ('caffe', .007)], {'formula': True}),
+    # ── bevande ──
+    ('spremuta_pompelmo', 'Spremuta di pompelmo', BEVANDE, r'spremut\w*.*pompelm', [('pompelmi', .45)], {}),
+    ('spremuta', 'Spremuta d\'arancia', BEVANDE, r'spremut', [('arance', .4)], {}),
+    ('centrifuga', 'Centrifuga o estratto', BEVANDE, r'centrifug|estratt|detox|dissetant|depurativ|vitamina|frullat|batido|jugo|maracuya|^fragol', [('centrifuga', .4)], {}),
+    ('acqua_1', 'Acqua 1 l', BEVANDE, r'acqua.*(1 ?l|1 litro|1 0l)|ferrarell|frizzantissim', [('acqua_1', 1)], {}),
+    ('acqua_075', 'Acqua 0,75 l', BEVANDE, r'acqua.*0 75|pellegrino', [('acqua_075', 1)], {}),
+    ('acqua_05', 'Acqua 0,5 l', BEVANDE, r'acqua|nepi', [('acqua_05', 1)], {}),
+    ('red_bull', 'Red Bull', BEVANDE, r'^re[bd] ?(bull)?\b(?!.*vodka)', [('red_bull', 1)], {}),
+    ('te_freddo_bicchiere', 'Tè freddo al bicchiere', BEVANDE, r'the freddo al bicchiere', [('te_freddo', .5)], {}),
+    ('te_freddo', 'Tè freddo pesca o limone', BEVANDE, r'^(the|te) (alla )?(pesca|limone)|te alla pesca', [('te_freddo', 1)], {}),
+    ('lattina', 'Bibita in lattina', BEVANDE, r'coca|fanta|sprite|bibita|lattin', [('lattina', 1)], {}),
+    ('succo', 'Succo di frutta', BEVANDE, r'succ', [('succo', 1)], {}),
+    ('aperitivo_analcolico', 'Aperitivo analcolico', BEVANDE, r'crodin|san ?bitter|^bitter$', [('aperitivo_analcolico', 1)], {}),
+    ('mixer', 'Tonica, lemon soda, chinotto', BEVANDE, r'^(?!.*\bgin\b).*(schwepp|tonica|tonic|lemon soda|chinott|cedrat|ginger beer|kin ?ley)', [('mixer', 1)], {}),
+    ('campari_soda', 'Campari soda', COCKTAIL, r'campari soda', [('campari_soda', 1)], {}),
+    ('analcolico_cocktail', 'Cocktail analcolico', BEVANDE, r'analco', [('succo', 2), ('frutta', .03)], {}),
+    # ── birre ──
+    ('birra_spina_piccola', 'Birra alla spina 20 cl', BIRRE, r'birra non filtrata da 20|spina.*20 ?cl', [('birra_fusto', .2)], {}),
+    ('birra_spina', 'Birra alla spina 40 cl', BIRRE, r'spina', [('birra_fusto', .4)], {}),
+    ('birra_66', 'Birra 66 cl', BIRRE, r'66|peroni grande|birra peroni grande', [('birra_66', 1)], {}),
+    ('birra_33', 'Birra in bottiglia 33 cl', BIRRE, r'birra|peroni|heine?ken|heiniken|mor+et+i+|moreti|corona|messina|ichn?u?s+a|ichunsaa|tennen?ts?|tennets|raff?o|cervez', [('birra_33', 1)], {}),
+    # ── vini e bollicine ──
+    ('bellini', 'Bellini', VINI, r'bellini', [('prosecco', .1), ('purea', .05)], {}),
+    ('mimosa', 'Mimosa', VINI, r'mimosa', [('prosecco', .1), ('arance', .15)], {}),
+    ('vino_bottiglia', 'Vino o prosecco in bottiglia', VINI, r'bot+iglia|prosecco (valdo|rocca)|^vino$', [('vino', .75)], {'min': 12}),
+    ('prosecco_calice', 'Calice di prosecco', VINI, r'^(?!.*grappa).*(prosecc|bollicin)', [('prosecco', .15)], {}),
+    ('vino_calice', 'Calice di vino', VINI, r'vino|calice', [('vino', .15)], {}),
+    # ── cocktail e alcolici ──
+    ('campari_spritz', 'Campari spritz', COCKTAIL, r'campari spritz|mix di aperol e campari', [('campari', .06), ('prosecco', .09), ('soda', .03)], {}),
+    ('hugo', 'Hugo spritz', COCKTAIL, r'hugo', [('sciroppo_sambuco', .03), ('prosecco', .12), ('soda', .03), ('menta', .003)], {}),
+    ('limoncello_spritz', 'Limoncello spritz', COCKTAIL, r'limoncello spritz', [('liquore', .05), ('prosecco', .1), ('soda', .03)], {}),
+    ('passion_spritz', 'Passion spritz', COCKTAIL, r'passion spritz', [('liquore', .05), ('prosecco', .1), ('soda', .03)], {}),
+    ('spritz', 'Aperol spritz', COCKTAIL, r'spritz|^aperol$', SPRITZ, {}),
+    ('negroni_sbagliato', 'Negroni sbagliato', COCKTAIL, r'negroni sbagliato', [('campari', .03), ('vermouth', .03), ('prosecco', .06)], {}),
+    ('negroni', 'Negroni', COCKTAIL, r'negroni', [('gin', .03), ('campari', .03), ('vermouth', .03)], {}),
+    ('gin_premium', 'Gin tonic premium', COCKTAIL, r'gin tonic speciale|gin mare|gin premium', [('gin_premium', .05), ('mixer', 1)], {}),
+    ('gin_tonic', 'Gin tonic', COCKTAIL, r'gin', [('gin', .05), ('mixer', 1)], {}),
+    ('moscow_mule', 'Moscow mule', COCKTAIL, r'moscow', [('vodka', .05), ('mixer', 1), ('lime', .5)], {}),
+    ('mojito', 'Mojito', COCKTAIL, r'mojito', [('rum', .05), ('lime', 1), ('menta', .005), ('zucchero', .02), ('soda', .06)], {}),
+    ('caipiroska', 'Caipiroska', COCKTAIL, r'ca?i?piroska', [('vodka', .05), ('lime', 1), ('zucchero', .02), ('frutta', .03)], {}),
+    ('pina_colada', 'Piña colada', COCKTAIL, r'pina colada', [('rum', .05), ('succo', 1), ('panna', .03)], {}),
+    ('pisco_sour', 'Pisco sour', COCKTAIL, r'pisco', [('pisco', .06), ('lime', 1), ('uova', .5)], {}),
+    ('malibu_cola', 'Malibu e cola', COCKTAIL, r'malibu', [('malibu', .05), ('lattina', 1)], {}),
+    ('rum_cola', 'Rum e cola', COCKTAIL, r'rum', [('rum', .05), ('lattina', 1)], {}),
+    ('vodka_redbull', 'Vodka e Red Bull', COCKTAIL, r'red bull con vodka|vodka.*red ?bull', [('vodka', .04), ('red_bull', 1)], {}),
+    ('jager_bomb', 'Jäger bomb', COCKTAIL, r'jae?ger', [('amaro', .03), ('red_bull', .5)], {}),
+    ('vodka', 'Vodka liscia', COCKTAIL, r'vodka', [('vodka', .04)], {}),
+    ('whisky', 'Whisky', COCKTAIL, r'whisk', [('whisky', .04)], {}),
+    ('amaro', 'Amaro', COCKTAIL, r'amar[oi]\b(?!.*lampone)', [('amaro', .04)], {}),
+    ('liquore', 'Liquori e grappe', COCKTAIL, r'sambuca|zambuca|grappa|limoncello|liquor|bailey', [('liquore', .04)], {}),
+    # ── rivendita: caramelle, gomme, gelati confezionati ──
+    ('rivendita', 'Caramelle, gomme e gelati', RIVENDITA, r'caramell|golia|gomm|vigorsol|mentos|gelato|stecco|cono|uvetta|granulato|amando|porcion', [], {'fuori': True}),
+]
+
+# prodotti che sono una famiglia di cose diverse (marche di birra, gusti di succo, bianco e rosso, voci generiche):
+# condividono categoria e ricetta, ma le voci si uniscono solo se sono lo stesso nome scritto male
+FAMIGLIE = {'rustica', 'toast_salmone', 'tagliata_pollo', 'pasta_pomodoro', 'suppli', 'caipiroska', 'acqua_075', 'ceviche', 'wurstel_patatine', 'cornetto', 'varie', 'servizio', 'rivendita', 'birra_33', 'birra_66', 'birra_spina', 'lattina', 'succo', 'mixer',
+            'aperitivo_analcolico', 'te_freddo', 'red_bull', 'acqua_1', 'acqua_05', 'centrifuga', 'vino_calice',
+            'vino_bottiglia', 'liquore', 'amaro', 'torta', 'biscotti', 'cornetto_farcito', 'caffe_freddo', 'pizza_varie',
+            'pasta_varie', 'contorno', 'formula_pranzo', 'formula_pizza', 'pesce_fritto', 'tagliere', 'pollo_limone',
+            'polpette', 'crudo_bufala', 'bufala_pachino', 'toast', 'te_caldo', 'gin_tonic', 'rum_cola', 'cheeseburger',
+            'hamburger', 'aperipizza', 'empanadas', 'cappuccino_orzo', 'colazione_salata'}
+
+_COMPILATI = [(p, re.compile(p[3])) for p in PRODOTTI]
+
+
+def chiave_testo(voce):
+    """La voce normalizzata della cassa (MAIUSCOLE senza accenti) → minuscole per le parole del catalogo."""
+    return (voce or '').lower()
+
+
+def riconosci(voce, prezzo=None):
+    """La voce della cassa (già normalizzata) → il prodotto del catalogo, o None.
+    `prezzo` medio IVA compresa: tiene fuori i falsi amici («Americano» cocktail da 8 €)."""
+    t = chiave_testo(voce)
+    for p, rx in _COMPILATI:
+        o = p[5]
+        if not rx.search(t):
+            continue
+        if prezzo is not None and (('max' in o and prezzo > o['max']) or ('min' in o and prezzo < o['min'])):
+            continue
+        return {'id': p[0], 'nome': p[1], 'categoria': p[2], 'ricetta': p[4], 'famiglia': p[0] in FAMIGLIE, **o}
+    return None
+
+
+def ingrediente(iid):
+    nome, unita, prezzo, parole, conv = ING[iid]
+    return {'id': iid, 'nome': nome, 'unita': unita, 'prezzo': prezzo, 'parole': re.compile(parole), 'conv': conv}
