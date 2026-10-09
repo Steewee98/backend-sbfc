@@ -381,22 +381,23 @@ def invia_campagna_feedback(destinatari):
 
 # ─── Campagna "Il manager della ristorazione" (manuale, 12 € ai lead) ──
 
-CAMPAGNA_MAN_SUBJECT = "Il manuale per chi guida un locale (per te a 12 €)"
+CAMPAGNA_MAN_SUBJECT = "Il manager della ristorazione: il nuovo manuale di SB Food Consulting"
 
 _CAMPAGNA_MAN_TEXT = (
-    "Ciao,\n\n"
-    "lo sai meglio di me: il servizio lo regge la squadra, ma la squadra la regge chi la guida. "
-    "E su come si guida un locale, di scritto e usabile davvero, c'e' pochissimo.\n\n"
-    "Per questo abbiamo messo insieme Il manager della ristorazione: 15 pagine pratiche, da leggere, "
-    "da passare ai tuoi responsabili e da tenere a portata di mano durante il servizio.\n\n"
-    "Dentro trovi: come guidare le persone, turni e briefing, ospitalita' e reclami, i numeri "
-    "(food cost, costo del lavoro), acquisti e magazzino, HACCP, allergeni e documenti, "
-    "il piano dei primi 30 giorni.\n\n"
-    "Per te, che hai gia' le nostre schede, costa 12 EUR invece di 15. Al pagamento metti questa "
-    "stessa email: il prezzo si applica da solo.\n"
+    "Gentile collega,\n\n"
+    "la qualita' di un locale dipende in larga parte da chi lo guida: dalla capacita' di organizzare "
+    "la squadra, leggere i numeri e garantire standard costanti in ogni servizio.\n\n"
+    "Con questa convinzione abbiamo realizzato \"Il manager della ristorazione - Come essere un buon "
+    "padrone di casa\", un manuale operativo di 15 pagine pensato per titolari, manager e responsabili di sala.\n\n"
+    "Al suo interno trovera': leadership e gestione del personale; organizzazione dei turni e briefing "
+    "pre-servizio; ospitalita' e gestione dei reclami; controllo economico (food cost, costo del lavoro, "
+    "cruscotto settimanale); acquisti, magazzino e scorte; HACCP, allergeni, adempimenti e documentazione; "
+    "un piano d'azione per i primi 30 giorni.\n\n"
+    "Condizione a Lei riservata: 12 EUR anziche' 15 EUR. E' sufficiente indicare, al momento "
+    "dell'acquisto, l'indirizzo email al quale ha ricevuto questo messaggio.\n"
     "https://www.sbfoodconsulting.com/academy.html#formazione\n\n"
-    "Buon servizio,\nSimone Braghetta\nSB Food Consulting\n\n"
-    "---\nPer non ricevere piu' queste email: %s\n"
+    "Cordiali saluti,\nSimone Braghetta\nFondatore, SB Food Consulting\n\n"
+    "---\nAnnulla l'iscrizione: %s\n"
 )
 
 
