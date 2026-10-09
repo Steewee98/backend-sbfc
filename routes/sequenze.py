@@ -70,23 +70,27 @@ def enrolla_sequenza(email, segmento='numeri', ritardo_giorni=CADENZA_GIORNI, pr
 # ─── Exit-on-purchase ──────────────────────────────────────────────────
 
 def _possiede(email):
-    """(ha_academy, ha_cruscotto) per l'email indicata."""
+    """(ha_academy, ha_manuale) per l'email indicata. «ha_manuale» vale anche per chi
+    ha già ricevuto la campagna del manuale: non gliela riproponiamo nella sequenza."""
+    from models import CodaCampagna
     email = (email or '').lower().strip()
     ha_academy = db.session.query(Studente.id).filter(
         Studente.email == email).first() is not None
-    ha_cruscotto = db.session.query(Pagamento.id).filter(
-        Pagamento.email == email,
-        Pagamento.prodotto == 'cruscotto-imprenditore').first() is not None
-    return ha_academy, ha_cruscotto
+    ha_manuale = db.session.query(Pagamento.id).filter(
+        db.func.lower(Pagamento.email) == email,
+        Pagamento.prodotto == 'manager-ristorazione').first() is not None \
+        or db.session.query(CodaCampagna.id).filter_by(
+            campagna='manuale', email=email, stato='inviata').first() is not None
+    return ha_academy, ha_manuale
 
 
-def _step_vende_posseduto(step, ha_academy, ha_cruscotto):
+def _step_vende_posseduto(step, ha_academy, ha_manuale):
     """Lo step vende un prodotto già acquistato?
 
     3 = foto delle schede + corso completo al 50% (Academy)
-    4 = Cruscotto · 5 = modulo · 6 = corso completo (Academy)
+    4 = manuale «Il manager della ristorazione» · 5 = modulo · 6 = corso completo (Academy)
     """
-    if step == 4 and ha_cruscotto:
+    if step == 4 and ha_manuale:
         return True
     if step in (3, 5, 6) and ha_academy:
         return True

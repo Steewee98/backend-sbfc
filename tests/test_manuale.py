@@ -150,5 +150,31 @@ class TestCoda(unittest.TestCase):
                 db.session.commit()
 
 
+class TestSequenzaSenzaCruscotto(unittest.TestCase):
+    """La sequenza non vende più il Cruscotto: lo step 4 è il manuale, saltato per chi
+    l'ha già comprato o ha già ricevuto la campagna."""
+
+    def test_step4_manuale(self):
+        from services.email_service import NURTURE
+        from routes.sequenze import _possiede, _step_vende_posseduto
+        from models import CodaCampagna
+        self.assertEqual(NURTURE[4][0], 'email_manuale_manager.html')
+        for _, _, testo in NURTURE.values():
+            self.assertNotIn('CRUSCOTTO15', testo)
+        for f in ('email_nurture1_uso.html', 'email_nurture6_ultimo.html', 'email_grazie_download.html',
+                  'email_manuale_manager.html'):
+            html = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'templates', f)).read()
+            self.assertNotIn('CRUSCOTTO15', html, f)
+            self.assertNotIn('cruscotto-imprenditore', html, f)
+        with app.app_context():
+            db.create_all()
+            db.session.add(CodaCampagna(campagna='manuale', email='ricevuta@esempio.it', stato='inviata'))
+            db.session.commit()
+            self.assertEqual(_possiede('nessuno@esempio.it'), (False, False))
+            self.assertEqual(_possiede('Ricevuta@esempio.it'), (False, True))
+            self.assertTrue(_step_vende_posseduto(4, False, True))
+            self.assertFalse(_step_vende_posseduto(4, False, False))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -389,7 +389,7 @@ _CAMPAGNA_MAN_TEXT = (
     "padrone di casa\", un manuale operativo di 15 pagine pensato per titolari, manager e responsabili di sala.\n\n"
     "Al suo interno trovera': leadership e gestione del personale; organizzazione dei turni e briefing "
     "pre-servizio; ospitalita' e gestione dei reclami; controllo economico (food cost, costo del lavoro, "
-    "cruscotto settimanale); acquisti, magazzino e scorte; HACCP, allergeni, adempimenti e documentazione; "
+    "margini); acquisti, magazzino e scorte; HACCP, allergeni, adempimenti e documentazione; "
     "un piano d'azione per i primi 30 giorni.\n\n"
     "Condizione a Lei riservata: 12 EUR anziche' 15 EUR. E' sufficiente indicare, al momento "
     "dell'acquisto, l'indirizzo email al quale ha ricevuto questo messaggio.\n"
@@ -490,8 +490,9 @@ NURTURE = {
         "1) aggiornarla quando cambiano i prezzi; 2) considerare scarti e cali di resa; "
         "3) partire dai 5 piatti piu' venduti.\n\nLe manca ancora il Quiz - I Numeri del Locale (gratis): "
         "https://web-production-f3794.up.railway.app/api/strumenti/quiz-numeri/pdf\n\n"
-        "Se vuole gia' fare sul serio: il Cruscotto dell'Imprenditore con CRUSCOTTO15 a 21,25 EUR. "
-        "https://www.sbfoodconsulting.com/cruscotto-imprenditore.html\n\nUn caro saluto,\nSB Food Consulting"),
+        "Per chi guida il locale: Il manager della ristorazione, 15 pagine operative. Per Lei 12 EUR "
+        "anziche' 15 EUR, indicando questo indirizzo email al momento dell'acquisto. "
+        "https://www.sbfoodconsulting.com/academy.html#formazione\n\nUn caro saluto,\nSB Food Consulting"),
     2: ('email_nurture2_gap.html',
         'Quello che una scheda, da sola, non Le dice',
         "Salve,\n\nla Scheda Food Cost Le dice quanto costa un piatto. Ma il Suo locale, nel suo insieme, "
@@ -515,12 +516,15 @@ NURTURE = {
         "contattarci direttamente.\n\n"
         "Grazie ancora per la fiducia e per aver scelto SB Food Consulting.\n\n"
         "Simone Braghetta - SB Food Consulting"),
-    4: ('email_nurture3_cruscotto.html',
-        'Controllo totale in mezz’ora al mese',
-        "Salve,\n\nse per ora Le basta smettere di navigare a vista, c'e' lo strumento piu' economico "
-        "che abbiamo: Il Cruscotto dell'Imprenditore. I numeri del locale in meno di 30 minuti al mese.\n\n"
-        "Codice CRUSCOTTO15 (-15%): 21,25 EUR anziche' 25,00 EUR.\n"
-        "https://www.sbfoodconsulting.com/cruscotto-imprenditore.html\n\nUn caro saluto,\nSB Food Consulting"),
+    # step 4: era il Cruscotto (tolto dalle email il 9 ott 2026), ora il manuale
+    4: ('email_manuale_manager.html',
+        'Il manager della ristorazione: il nuovo manuale di SB Food Consulting',
+        "Gentile collega,\n\nla qualita' di un locale dipende in larga parte da chi lo guida. "
+        "Con questa convinzione abbiamo realizzato Il manager della ristorazione - Come essere un buon "
+        "padrone di casa, un manuale operativo di 15 pagine per titolari, manager e responsabili di sala.\n\n"
+        "Condizione a Lei riservata: 12 EUR anziche' 15 EUR, indicando questo indirizzo email al momento "
+        "dell'acquisto.\nhttps://www.sbfoodconsulting.com/academy.html#formazione\n\n"
+        "Cordiali saluti,\nSimone Braghetta\nFondatore, SB Food Consulting"),
     5: ('email_nurture4_modulo.html',
         'Un’azione al giorno. E smette di guidare a occhio.',
         "Salve,\n\nla Challenge del Controllo e' un percorso da fare: un'azione al giorno, 5 minuti. "
@@ -537,8 +541,8 @@ NURTURE = {
         "Salve,\n\nsono Simone Braghetta. Le lascio i due strumenti, con i Suoi vantaggi:\n"
         "1. SB Food Academy - SCHEDE10 (-10%): modulo 17,91 EUR, completo 85,41 EUR. "
         "https://www.sbfoodconsulting.com/academy.html\n"
-        "2. Il Cruscotto - CRUSCOTTO15 (-15%): 21,25 EUR. "
-        "https://www.sbfoodconsulting.com/cruscotto-imprenditore.html\n\n"
+        "2. Il manager della ristorazione - il manuale per chi guida un locale: 12 EUR anziche' 15 EUR "
+        "con questo indirizzo email. https://www.sbfoodconsulting.com/academy.html#formazione\n\n"
         "Se ha una domanda sul Suo locale, mi scriva pure rispondendo a questa email.\n\n"
         "A presto,\nSimone Braghetta - SB Food Consulting"),
 }
