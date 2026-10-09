@@ -240,10 +240,87 @@ def stats_lead():
 
 def _email_uniche_consenso():
     """Email uniche dei lead con consenso marketing (i destinatari della campagna)."""
+    from models import EmailSequenza
     rows = (db.session.query(LeadStrumento.email)
             .filter(LeadStrumento.consenso_marketing.is_(True))
             .distinct().all())
-    return sorted({(r[0] or '').strip().lower() for r in rows if r[0]})
+    # chi si è disiscritto dal link nelle email non riceve più campagne
+    via = {(r[0] or '').strip().lower() for r in db.session.query(EmailSequenza.email)
+           .filter(EmailSequenza.stato == 'disiscritta').all()}
+    return sorted({(r[0] or '').strip().lower() for r in rows if r[0]} - via)
+
+
+# ─── Invii scaglionati (coda) ─────────────────────────────────────────
+
+CAMPAGNE_IN_CODA = {'manuale'}
+
+
+def accoda_campagna(campagna, emails):
+    """Mette in coda le email (una volta sola per persona). Ritorna quante nuove."""
+    from models import CodaCampagna
+    gia = {r[0] for r in db.session.query(CodaCampagna.email).filter_by(campagna=campagna).all()}
+    nuove = [e for e in emails if e not in gia]
+    for e in nuove:
+        db.session.add(CodaCampagna(campagna=campagna, email=e))
+    db.session.commit()
+    return len(nuove)
+
+
+def processa_coda(per_giorno=None, adesso=None):
+    """Manda le email in coda senza superare per_giorno invii per campagna nella
+    giornata (UTC). Salta chi nel frattempo si è disiscritto o ha già comprato.
+    Va chiamata dentro un application context. Ritorna {campagna: inviate}."""
+    from models import CodaCampagna, EmailSequenza, Pagamento
+    from services.email_service import invia_manuale_a
+    per_giorno = int(per_giorno or os.environ.get('CAMPAGNA_PER_GIORNO', 50))
+    adesso = adesso or datetime.utcnow()
+    inizio = adesso.replace(hour=0, minute=0, second=0, microsecond=0)
+    invio = {'manuale': invia_manuale_a}
+    fatto = {}
+    for campagna in CAMPAGNE_IN_CODA:
+        oggi = CodaCampagna.query.filter(
+            CodaCampagna.campagna == campagna,
+            CodaCampagna.inviata_at >= inizio).count()
+        posto = per_giorno - oggi
+        if posto <= 0:
+            continue
+        righe = (CodaCampagna.query.filter_by(campagna=campagna, stato='in_coda')
+                 .order_by(CodaCampagna.id.asc()).limit(posto).all())
+        n = 0
+        for r in righe:
+            via = db.session.query(EmailSequenza.id).filter_by(email=r.email, stato='disiscritta').first()
+            comprato = campagna == 'manuale' and db.session.query(Pagamento.id).filter(
+                db.func.lower(Pagamento.email) == r.email,
+                Pagamento.prodotto == 'manager-ristorazione').first()
+            if via or comprato:
+                r.stato = 'saltata'
+                r.inviata_at = adesso   # conta nella quota: il ritmo resta prevedibile
+                db.session.commit()
+                continue
+            rid = invia_manuale_a(r.email) if campagna in invio else None
+            r.tentativi = (r.tentativi or 0) + 1
+            if rid:
+                r.stato, r.resend_id, r.inviata_at = 'inviata', str(rid)[:100], adesso
+                n += 1
+            elif r.tentativi >= 3:
+                r.stato, r.inviata_at = 'fallita', adesso
+            db.session.commit()
+            time.sleep(0.6)
+        if n:
+            fatto[campagna] = n
+    return fatto
+
+
+@lead_strumenti_bp.route('/api/lead-strumenti/campagna/coda', methods=['GET'])
+@admin_required
+def coda_stato():
+    """Quante email della campagna sono in coda, inviate, saltate, fallite."""
+    from models import CodaCampagna
+    campagna = request.args.get('campagna', 'manuale')
+    rows = (db.session.query(CodaCampagna.stato, db.func.count(CodaCampagna.id))
+            .filter_by(campagna=campagna).group_by(CodaCampagna.stato).all())
+    return jsonify({'campagna': campagna, 'per_stato': {s: c for s, c in rows},
+                    'per_giorno': int(os.environ.get('CAMPAGNA_PER_GIORNO', 50))}), 200
 
 
 @lead_strumenti_bp.route('/api/lead-strumenti/campagna', methods=['GET'])
@@ -266,15 +343,18 @@ def campagna_invia():
     Campagna (opzionale, default "feedback"):
       {"campagna":"feedback"}  -> "Come ti sei trovato? + -20%"
       {"campagna":"schede"}    -> "Sono uscite 3 nuove schede + scarica tutte"
+      {"campagna":"manuale"}   -> "Il manager della ristorazione", 12 € ai lead
     La lista è ordinata in modo deterministico: offset+limit permettono di
     inviare a scaglioni senza doppioni (es. prima limit=10, poi offset=10).
     """
-    from services.email_service import invia_campagna_schede, invia_campagna_feedback
+    from services.email_service import (invia_campagna_schede, invia_campagna_feedback,
+                                        invia_campagna_manuale)
 
     data = request.get_json(force=True, silent=True) or {}
     mode = (data.get('mode') or '').strip().lower()
     which = (data.get('campagna') or 'feedback').strip().lower()
-    invia = invia_campagna_feedback if which == 'feedback' else invia_campagna_schede
+    invia = {'feedback': invia_campagna_feedback, 'manuale': invia_campagna_manuale}.get(
+        which, invia_campagna_schede)
 
     if mode == 'test':
         to = (data.get('to') or '').strip().lower()
@@ -283,6 +363,16 @@ def campagna_invia():
         if not invia([to]):
             return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
         return jsonify({'success': True, 'mode': 'test', 'campagna': which, 'destinatario': to}), 200
+
+    if mode == 'programmata':
+        # invii scaglionati: si accoda tutto, il giro in background ne manda N al giorno
+        if which not in CAMPAGNE_IN_CODA:
+            return jsonify({'error': 'Campagna non programmabile'}), 400
+        if data.get('conferma') != 'INVIA':
+            return jsonify({'error': 'Conferma mancante: aggiungi "conferma":"INVIA"'}), 400
+        nuove = accoda_campagna(which, _email_uniche_consenso())
+        return jsonify({'success': True, 'mode': 'programmata', 'campagna': which, 'accodate': nuove,
+                        'per_giorno': int(os.environ.get('CAMPAGNA_PER_GIORNO', 50))}), 202
 
     if mode == 'reale':
         if data.get('conferma') != 'INVIA':

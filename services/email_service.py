@@ -379,6 +379,79 @@ def invia_campagna_feedback(destinatari):
     return True
 
 
+# ─── Campagna "Il manager della ristorazione" (manuale, 12 € ai lead) ──
+
+CAMPAGNA_MAN_SUBJECT = "Il nuovo manuale per chi guida un locale (per Lei a 12 €)"
+
+_CAMPAGNA_MAN_TEXT = (
+    "Salve,\n\n"
+    "qualche tempo fa ha scaricato una delle nostre schede operative. Oggi esce il primo "
+    "manuale di formazione di SB Food Consulting: Il manager della ristorazione - Come essere "
+    "un buon padrone di casa. 15 pagine pratiche per chi guida un locale.\n\n"
+    "Dentro: guidare le persone, turni e briefing, ospitalita' e reclami, i numeri (food cost, "
+    "costo del lavoro), acquisti e magazzino, HACCP, allergeni e documenti, il piano dei primi 30 giorni.\n\n"
+    "Il Suo prezzo da lettore delle schede: 12 EUR invece di 15 EUR. Al pagamento usi questa "
+    "stessa email: il prezzo si applica da solo.\n"
+    "https://www.sbfoodconsulting.com/academy.html#formazione\n\n"
+    "Un caro saluto,\nSimone Braghetta e il team SB Food Consulting\n\n"
+    "---\nPer non ricevere piu' queste email: %s\n"
+)
+
+
+def invia_manuale_a(email):
+    """Manda la campagna del manuale a UNA persona e la registra su EmailInvio.
+    Ritorna il resend_id o None. Va chiamata dentro un application context."""
+    if not resend.api_key:
+        resend.api_key = os.environ.get('RESEND_API_KEY')
+    if not resend.api_key:
+        return None
+    with open(os.path.join(TEMPLATES_DIR, 'email_manuale_manager.html'), 'r', encoding='utf-8') as f:
+        base_html = f.read()
+    u = unsub_url(email)
+    try:
+        res = resend.Emails.send({
+            "from": _mail_from(),
+            "to": [email],
+            "subject": CAMPAGNA_MAN_SUBJECT,
+            "html": base_html.replace('[UNSUBSCRIBE_URL]', u),
+            "text": _CAMPAGNA_MAN_TEXT % u,
+            "headers": {"List-Unsubscribe": "<%s>" % u,
+                        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"},
+            "tags": [{"name": "categoria", "value": "campagna_manuale"}],
+        })
+        rid = res.get('id') if isinstance(res, dict) else getattr(res, 'id', None)
+        log_email_invio(rid, email, CAMPAGNA_MAN_SUBJECT, 'campagna_manuale')
+        return rid or 'inviata'
+    except Exception as e:
+        logger.error("Errore invio campagna manuale a %s: %s", email, e)
+        return None
+
+
+def _send_campagna_manuale(app, destinatari):
+    """Invio immediato (usato per l'email di prova): una alla volta, con pausa."""
+    inviati = falliti = 0
+    with app.app_context():
+        for email in destinatari:
+            if invia_manuale_a(email):
+                inviati += 1
+            else:
+                falliti += 1
+            time.sleep(0.6)
+    print("[CAMPAGNA-MANUALE] completata: %s inviate, %s fallite" % (inviati, falliti), flush=True)
+
+
+def invia_campagna_manuale(destinatari):
+    """Avvia in background l'invio della campagna del manuale."""
+    if not campagna_configurata():
+        logger.warning("RESEND_API_KEY non configurata, campagna manuale non inviata")
+        return False
+    from flask import current_app
+    app = current_app._get_current_object()
+    threading.Thread(target=_send_campagna_manuale, args=(app, list(destinatari)),
+                     daemon=True).start()
+    return True
+
+
 # ─── Sequenza nurture automatica (una email a settimana) ──────────────
 #
 # Sei email inviate a cadenza settimanale a ogni lead delle schede. Il

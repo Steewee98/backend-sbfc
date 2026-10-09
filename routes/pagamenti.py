@@ -1,13 +1,16 @@
 import os
 import string
 import secrets
+import hmac
+import hashlib
 import logging
 import stripe
+from urllib.parse import quote
 from functools import wraps
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
-from models import db, Pagamento, Studente
+from models import db, Pagamento, Studente, FilePrivato, LeadStrumento
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,48 @@ PRODOTTI = {
         'tipo': 'pdf',
         'download_url': 'https://www.sbfoodconsulting.com/assets/pdf/cruscotto/cruscotto-5982dfb162f67bdb.pdf',
     },
+    # Manuale di formazione (Academy → #formazione). Il PDF NON sta nei repository
+    # (pubblici): è in FilePrivato e si scarica dal link firmato dell'email.
+    # Prezzo: 15 € ai nuovi, 12 € a chi ha già lasciato l'email per una scheda.
+    'manager-ristorazione': {
+        'nome': 'Il manager della ristorazione — Manuale (PDF)',
+        'prezzo': 1500,
+        'prezzo_lead': 1200,
+        'moduli': [],
+        'tipo': 'pdf',
+        'file_privato': 'manager-ristorazione',
+        'success_path': '/academy.html?acquisto=manuale#formazione',
+        'cancel_path': '/academy.html#formazione',
+    },
 }
+
+
+def _e_lead(email):
+    """Ha già lasciato l'email per scaricare una scheda?"""
+    email = (email or '').strip().lower()
+    if not email:
+        return False
+    return db.session.query(LeadStrumento.id).filter(
+        db.func.lower(LeadStrumento.email) == email).first() is not None
+
+
+def prezzo_per(prodotto, email):
+    """Prezzo in centesimi per quell'email (prezzo_lead se è già nei lead)."""
+    if prodotto.get('prezzo_lead') and _e_lead(email):
+        return prodotto['prezzo_lead']
+    return prodotto['prezzo']
+
+
+def _firma_download(slug, email):
+    secret = os.environ.get('SECRET_KEY', 'dev-fallback-key').encode()
+    msg = ('download:%s:%s' % (slug, (email or '').strip().lower())).encode()
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()[:24]
+
+
+def link_download(slug, email):
+    dom = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or 'web-production-f3794.up.railway.app'
+    return 'https://%s/api/download/%s?e=%s&t=%s' % (
+        dom, slug, quote((email or '').strip().lower()), _firma_download(slug, email))
 
 
 def admin_required(f):
@@ -91,7 +135,10 @@ def crea_checkout():
 
     # I prodotti PDF (Cruscotto) tornano alla loro pagina di ringraziamento;
     # i corsi Academy restano su academy.html.
-    if prodotto.get('tipo') == 'pdf':
+    if prodotto.get('success_path'):
+        success_url = frontend_url + prodotto['success_path']
+        cancel_url = frontend_url + prodotto.get('cancel_path', '/')
+    elif prodotto.get('tipo') == 'pdf':
         success_url = f'{frontend_url}/cruscotto-grazie?pagamento=successo'
         cancel_url = f'{frontend_url}/cruscotto-imprenditore?pagamento=annullato'
     else:
@@ -108,7 +155,7 @@ def crea_checkout():
                         'name': prodotto['nome'],
                         'description': 'SB Food Academy — sbfoodconsulting.com',
                     },
-                    'unit_amount': prodotto['prezzo'],
+                    'unit_amount': prezzo_per(prodotto, data.get('email')),
                 },
                 'quantity': 1,
             }],
@@ -308,8 +355,11 @@ def _consegna_pdf(nome, email, prodotto_cfg, importo, stripe_id):
     try:
         from utils.email import invia_email
         nome_p = prodotto_cfg.get('nome', 'La tua guida')
-        link = prodotto_cfg.get(
-            'download_url', 'https://www.sbfoodconsulting.com/cruscotto-grazie')
+        if prodotto_cfg.get('file_privato'):
+            link = link_download(prodotto_cfg['file_privato'], email)
+        else:
+            link = prodotto_cfg.get(
+                'download_url', 'https://www.sbfoodconsulting.com/cruscotto-grazie')
         corpo = f"""
         <p>Ciao {nome or ''},</p>
         <p>grazie per l'acquisto di <strong>{nome_p}</strong>.</p>
@@ -325,8 +375,8 @@ def _consegna_pdf(nome, email, prodotto_cfg, importo, stripe_id):
 
         invia_email(
             "info@stefanodemartis.com", "Simone",
-            f"Nuovo acquisto Cruscotto — {email} ({importo}€)",
-            f"""<h3>Nuovo acquisto Cruscotto</h3>
+            f"Nuovo acquisto — {nome_p} — {email} ({importo}€)",
+            f"""<h3>Nuovo acquisto: {nome_p}</h3>
             <p><strong>Cliente:</strong> {nome or '—'}</p>
             <p><strong>Email:</strong> {email}</p>
             <p><strong>Prodotto:</strong> {nome_p}</p>
@@ -335,6 +385,51 @@ def _consegna_pdf(nome, email, prodotto_cfg, importo, stripe_id):
         logger.info("PDF consegnato via email a %s", email)
     except Exception as e:
         logger.error("Errore consegna PDF a %s: %s", email, e, exc_info=True)
+
+
+# ─── File privati (manuali venduti) ──────────────────────
+
+@pagamenti_bp.route('/api/download/<slug>', methods=['GET'])
+def scarica_file_privato(slug):
+    """Link firmato dell'email di consegna: vale solo per chi ha pagato quel prodotto."""
+    email = (request.args.get('e') or '').strip().lower()
+    firma = request.args.get('t') or ''
+    if not email or not hmac.compare_digest(firma, _firma_download(slug, email)):
+        return jsonify({'error': 'Link non valido'}), 403
+    prodotti = [pid for pid, p in PRODOTTI.items() if p.get('file_privato') == slug]
+    pagato = prodotti and db.session.query(Pagamento.id).filter(
+        db.func.lower(Pagamento.email) == email,
+        Pagamento.prodotto.in_(prodotti),
+        Pagamento.stato == 'completato').first()
+    if not pagato:
+        return jsonify({'error': 'Nessun acquisto per questo indirizzo'}), 403
+    f = FilePrivato.query.filter_by(slug=slug).first()
+    if not f:
+        logger.error('File privato mancante: %s', slug)
+        return jsonify({'error': 'File non disponibile, scrivici a info@sbfoodconsulting.com'}), 404
+    from io import BytesIO
+    return send_file(BytesIO(f.dati), mimetype=f.mime or 'application/pdf',
+                     as_attachment=True, download_name=f.nome_file)
+
+
+@pagamenti_bp.route('/api/admin/file/<slug>', methods=['POST'])
+def carica_file_privato(slug):
+    """Carica o sostituisce un file privato (multipart, campo «file»). Solo admin."""
+    if request.headers.get('X-Admin-Token') != os.environ.get('ADMIN_TOKEN'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+    up = request.files.get('file')
+    if not up:
+        return jsonify({'error': 'File mancante'}), 400
+    dati = up.read()
+    if not dati or len(dati) > 20 * 1024 * 1024:
+        return jsonify({'error': 'File vuoto o oltre 20 MB'}), 400
+    f = FilePrivato.query.filter_by(slug=slug).first() or FilePrivato(slug=slug)
+    f.nome_file = up.filename or (slug + '.pdf')
+    f.mime = up.mimetype or 'application/pdf'
+    f.dati = dati
+    db.session.add(f)
+    db.session.commit()
+    return jsonify({'ok': True, 'slug': slug, 'byte': len(dati)}), 200
 
 
 # ─── Admin endpoints ─────────────────────────────────────

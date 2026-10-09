@@ -89,6 +89,36 @@ class Evento(db.Model):
         }
 
 
+class FilePrivato(db.Model):
+    """File venduti (es. manuali PDF) tenuti nel database e non nei repository, che sono
+    pubblici: si scaricano solo dal link firmato mandato a chi ha pagato
+    (routes/pagamenti.py, /api/download/<slug>)."""
+    __tablename__ = 'file_privati'
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(100), unique=True, nullable=False)
+    nome_file = db.Column(db.String(200), nullable=False)
+    mime = db.Column(db.String(100), default='application/pdf')
+    dati = db.Column(db.LargeBinary, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CodaCampagna(db.Model):
+    """Invii scaglionati di una campagna email: una riga per destinatario. Il giro in
+    background (app.py → processa_coda) ne manda al massimo N al giorno."""
+    __tablename__ = 'coda_campagne'
+    __table_args__ = (db.UniqueConstraint('campagna', 'email', name='uq_coda_campagna_email'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    campagna = db.Column(db.String(50), nullable=False, index=True)
+    email = db.Column(db.String(200), nullable=False)
+    stato = db.Column(db.String(20), default='in_coda', index=True)  # in_coda | inviata | fallita | saltata
+    tentativi = db.Column(db.Integer, default=0)
+    resend_id = db.Column(db.String(100))
+    creata_at = db.Column(db.DateTime, default=datetime.utcnow)
+    inviata_at = db.Column(db.DateTime)
+
+
 class Pagamento(db.Model):
     __tablename__ = 'pagamenti'
 

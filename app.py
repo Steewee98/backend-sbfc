@@ -272,6 +272,12 @@ def _background_sequenze():
                     r = processa_sequenze()
                     if r.get('inviate') or r.get('completate'):
                         print(f"[SEQUENZE] inviate {r['inviate']}, completate {r['completate']}")
+                # campagne scaglionate: dalle 9 di Roma, N al giorno (CAMPAGNA_PER_GIORNO)
+                if 7 <= ora <= 18:
+                    from routes.lead_strumenti import processa_coda
+                    c = processa_coda()
+                    if c:
+                        print(f"[CAMPAGNE] inviate {c}")
         except Exception as e:
             print(f"[SEQUENZE] Errore: {e}")
         time.sleep(SEQUENZE_INTERVAL)
