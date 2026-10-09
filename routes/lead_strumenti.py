@@ -162,7 +162,8 @@ def crea_lead():
     logger.info(msg)
 
     # Auto-invio della mail transazionale di ringraziamento + conferma download,
-    # con i codici sconto Cruscotto (CRUSCOTTO15) e Academy (SCHEDE10). Parte a
+    # con il manuale «Il manager della ristorazione» a 12 € (il lead è appena stato
+    # salvato, quindi al checkout il prezzo da lead vale già). Parte a
     # OGNI download: ogni scheda scaricata riceve la sua conferma personalizzata
     # (transazionale, non marketing di massa).
     # NB: NON è la campagna "3 nuove schede" (invia_campagna_schede), che è un

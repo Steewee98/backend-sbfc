@@ -158,31 +158,29 @@ NOMI_STRUMENTI = {
     'manuale-operativo': 'Manuale Operativo',
 }
 
-GRAZIE_SUBJECT = "La tua scheda è pronta — e due vantaggi riservati (SB Food Consulting)"
+GRAZIE_SUBJECT = "La Sua scheda è pronta, e una condizione riservata sul nuovo manuale"
 
 _PDF_BASE = "https://www.sbfoodconsulting.com/assets/pdf/risorse"
 
 
 def _grazie_text(nome_scheda, scheda_url):
     return (
-        "Buongiorno,\n\n"
-        f"grazie per aver scaricato la scheda \"{nome_scheda}\". Il download e' partito nel "
-        f"browser; se ti serve di nuovo, la riscarichi qui:\n{scheda_url}\n\n"
+        "Gentile collega,\n\n"
+        f"La ringraziamo per aver scaricato \"{nome_scheda}\". Il download e' partito nel "
+        f"Suo browser; qualora Le servisse di nuovo, la ritrova qui:\n{scheda_url}\n\n"
         "Tutte le schede operative gratuite: https://www.sbfoodconsulting.com/schede\n\n"
-        "Due vantaggi riservati a chi scarica le schede:\n\n"
-        "1) Il Cruscotto dell'Imprenditore al -15%. In meno di 30 minuti al mese "
-        "sai dove guadagni, dove perdi e quale decisione prendere.\n"
-        "   Codice CRUSCOTTO15 -> 21,25 EUR anziche' 25,00 EUR.\n"
-        "   https://www.sbfoodconsulting.com/cruscotto-imprenditore\n\n"
-        "2) SB Food Academy al -10%. Singolo modulo 17,91 EUR (invece di 19,90) "
-        "o percorso completo 85,41 EUR (invece di 94,90).\n"
-        "   Codice SCHEDE10.\n"
-        "   https://www.sbfoodconsulting.com/academy.html\n\n"
-        "Per qualsiasi domanda rispondi pure a questa email.\n"
-        "A presto,\nSB Food Consulting\n\n"
+        "Novita': Il manager della ristorazione - Come essere un buon padrone di casa. "
+        "15 pagine operative per titolari, manager e responsabili di sala: leadership e personale, "
+        "turni e briefing, ospitalita' e reclami, controllo economico e margini, acquisti e magazzino, "
+        "HACCP, allergeni e documentazione, un piano d'azione per i primi 30 giorni.\n\n"
+        "Condizione a Lei riservata: 12 EUR anziche' 15 EUR. E' sufficiente indicare, al momento "
+        "dell'acquisto, l'indirizzo email al quale ha ricevuto questo messaggio.\n"
+        "https://www.sbfoodconsulting.com/academy.html#formazione\n\n"
+        "Per qualsiasi domanda puo' rispondere direttamente a questa email.\n\n"
+        "Cordiali saluti,\nSimone Braghetta\nFondatore, SB Food Consulting\n\n"
         "---\n"
-        "SB Food Consulting — Roma, Italia — info@sbfoodconsulting.com\n"
-        "Per non ricevere piu' queste email rispondi 'Cancellami'.\n"
+        "SB Food Consulting - Roma, Italia - info@sbfoodconsulting.com\n"
+        "Per non ricevere piu' queste email risponda 'Cancellami'.\n"
     )
 
 
@@ -218,8 +216,8 @@ def _send_grazie_download(destinatario, strumento):
 
 
 def invia_email_grazie_download(destinatario, strumento):
-    """Avvia in background la mail di ringraziamento + conferma download con i
-    codici sconto Cruscotto e Academy. Non blocca la risposta HTTP."""
+    """Avvia in background la mail di ringraziamento + conferma download, con il
+    manuale «Il manager della ristorazione» a 12 €. Non blocca la risposta HTTP."""
     if not os.environ.get('RESEND_API_KEY'):
         logger.warning("RESEND_API_KEY non configurata, email grazie-download non inviata")
         return False
