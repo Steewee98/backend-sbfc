@@ -381,19 +381,21 @@ def invia_campagna_feedback(destinatari):
 
 # ─── Campagna "Il manager della ristorazione" (manuale, 12 € ai lead) ──
 
-CAMPAGNA_MAN_SUBJECT = "Il nuovo manuale per chi guida un locale (per Lei a 12 €)"
+CAMPAGNA_MAN_SUBJECT = "Il manuale per chi guida un locale (per te a 12 €)"
 
 _CAMPAGNA_MAN_TEXT = (
-    "Salve,\n\n"
-    "qualche tempo fa ha scaricato una delle nostre schede operative. Oggi esce il primo "
-    "manuale di formazione di SB Food Consulting: Il manager della ristorazione - Come essere "
-    "un buon padrone di casa. 15 pagine pratiche per chi guida un locale.\n\n"
-    "Dentro: guidare le persone, turni e briefing, ospitalita' e reclami, i numeri (food cost, "
-    "costo del lavoro), acquisti e magazzino, HACCP, allergeni e documenti, il piano dei primi 30 giorni.\n\n"
-    "Il Suo prezzo da lettore delle schede: 12 EUR invece di 15 EUR. Al pagamento usi questa "
+    "Ciao,\n\n"
+    "lo sai meglio di me: il servizio lo regge la squadra, ma la squadra la regge chi la guida. "
+    "E su come si guida un locale, di scritto e usabile davvero, c'e' pochissimo.\n\n"
+    "Per questo abbiamo messo insieme Il manager della ristorazione: 15 pagine pratiche, da leggere, "
+    "da passare ai tuoi responsabili e da tenere a portata di mano durante il servizio.\n\n"
+    "Dentro trovi: come guidare le persone, turni e briefing, ospitalita' e reclami, i numeri "
+    "(food cost, costo del lavoro), acquisti e magazzino, HACCP, allergeni e documenti, "
+    "il piano dei primi 30 giorni.\n\n"
+    "Per te, che hai gia' le nostre schede, costa 12 EUR invece di 15. Al pagamento metti questa "
     "stessa email: il prezzo si applica da solo.\n"
     "https://www.sbfoodconsulting.com/academy.html#formazione\n\n"
-    "Un caro saluto,\nSimone Braghetta e il team SB Food Consulting\n\n"
+    "Buon servizio,\nSimone Braghetta\nSB Food Consulting\n\n"
     "---\nPer non ricevere piu' queste email: %s\n"
 )
 
