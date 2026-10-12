@@ -411,7 +411,7 @@ h2{font-size:28px;margin:0 0 6px}
 .c-o1{background:var(--o1)}.c-o2{background:var(--o2)}.c-o3{background:var(--o3)}
 /* copertina */
 .rs-cop{background:var(--cop);color:var(--cop-ink);margin:0 -16px;padding:36px 40px 30px;border-radius:0 0 22px 22px;position:relative;overflow:hidden}
-.rs-cop::after{content:"";position:absolute;right:-90px;top:-90px;width:280px;height:280px;border-radius:50%;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 0 40px rgba(255,255,255,.02),0 0 0 80px rgba(255,255,255,.015)}
+.rs-cop::after{content:"";pointer-events:none;position:absolute;right:-90px;top:-90px;width:280px;height:280px;border-radius:50%;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 0 40px rgba(255,255,255,.02),0 0 0 80px rgba(255,255,255,.015)}
 .rs-cop-su{display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--cop-2)}
 .rs-cop-su b{color:#ef8b52;font-weight:600}
 .rs-cop h1{font-size:52px;margin:34px 0 6px;letter-spacing:-.01em}
@@ -421,7 +421,7 @@ h2{font-size:28px;margin:0 0 6px}
 .rs-eroe span{color:var(--cop-2);padding-bottom:6px}
 .rs-cop .rs-pila{height:16px}.rs-cop .rs-pila div{border-radius:4px}
 .rs-cop .rs-leg{color:var(--cop-2);margin-top:10px}
-.rs-stampa{font:inherit;font-size:12px;letter-spacing:.04em;text-transform:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:var(--cop-ink);border-radius:999px;padding:7px 14px;cursor:pointer;white-space:nowrap}
+.rs-stampa{position:relative;z-index:1;font:inherit;font-size:12px;letter-spacing:.04em;text-transform:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:var(--cop-ink);border-radius:999px;padding:7px 14px;cursor:pointer;white-space:nowrap}
 .rs-stampa:hover{background:rgba(255,255,255,.08)}
 .rs-numeri{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0 6px}
 .rs-numeri div{background:var(--carta);border:1px solid var(--linea);border-radius:14px;padding:16px 18px}
