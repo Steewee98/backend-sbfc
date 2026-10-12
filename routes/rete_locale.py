@@ -290,6 +290,27 @@ def domanda_ai_dati(lid):
         return jsonify({'error': str(e)}), e.stato
 
 
+@rete_locale_bp.route('/api/rete/locali/<int:lid>/resoconto', methods=['GET'])
+@admin_required
+def resoconto_incassi(lid):
+    """La pagina del resoconto degli incassi (services/resoconto.py), da aprire, stampare e mandare al locale.
+    ?dal=&al= (AAAA-MM-GG) per un periodo; senza, tutte le vendite caricate. È una lettura: anche la direzione."""
+    from datetime import date as _date
+    from services.resoconto import pagina, NienteDaRaccontare
+    l = LocaleRete.query.get_or_404(lid)
+    try:
+        dal, al = (_date.fromisoformat(request.args[k]) if request.args.get(k) else None for k in ('dal', 'al'))
+    except ValueError:
+        return jsonify({'error': 'Date nel formato AAAA-MM-GG'}), 400
+    if dal and al and dal > al:
+        return jsonify({'error': 'Il periodo finisce prima di cominciare'}), 400
+    try:
+        html = pagina(l, dal, al)
+    except NienteDaRaccontare as e:
+        return jsonify({'error': str(e)}), 404
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'}
+
+
 @rete_locale_bp.route('/api/rete/locali/<int:lid>/dossier', methods=['PATCH'])
 @admin_required
 def salva_dossier(lid):

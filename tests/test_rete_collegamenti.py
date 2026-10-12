@@ -573,6 +573,40 @@ class TreePortali(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         self.assertIn('credito', r.get_json()['error'])
 
+    def test_18_resoconto_degli_incassi(self):
+        """Il report della cassa caricato in Managing finisce nel resoconto che Monitoring genera:
+        stessi totali, doppioni uniti, tasti generici e IVA mista detti. La direzione lo può aprire."""
+        import json
+        c, M = self.c, self.M
+        lid = c.post('/api/rete/locali', json={'nome': 'Bar <resoconto>'}, headers=ADMIN).get_json()['id']
+        base = f'/api/rete/locali/{lid}'
+        self.assertEqual(c.get(base + '/resoconto', headers=self.D).status_code, 404)     # senza vendite non c'è niente da dire
+        righe = [('Caffe', 1000, 1300, 10), ('Caffè', 900, 990, 10), ('Cappuccino', 300, 480, 10), ('Carbonara', 120, 1320, 10),
+                 ('Varie', 40, 400, 10), ('Aperol spritz', 100, 700, 16), ('Gelato', 2, 6, 10)]
+        testa = '"Product";"Quantity";"Sales incl Tax";"Sales excl Tax";"Tax Amount"\n'
+        csv_ = (testa + ''.join(f'"{n}";"{q}";"{e:.2f}";"{e / (1 + a / 100):.2f}";"{e - e / (1 + a / 100):.2f}"\n'.replace('.', ',')
+                                for n, q, e, a in righe)).encode()
+        r = c.post(base + '/vendite', headers=M, content_type='multipart/form-data', data={
+            'file': (io.BytesIO(csv_), 'product-sales-report-2026-01-01_2026-03-31.csv'),
+            'colonne': json.dumps({'voce': 0, 'quantita': 1, 'incasso': 2, 'netto': 3, 'iva': 4})})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        r = c.get(base + '/resoconto', headers=self.D)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('text/html', r.content_type)
+        h = r.get_data(as_text=True)
+        self.assertIn('Bar &lt;resoconto&gt;', h)                     # il nome passa dall'escape
+        self.assertNotIn('<resoconto>', h)
+        self.assertIn('5.196 €', h)                                    # l'incasso del report, intero
+        self.assertIn('90 giorni, chiusure comprese', h)
+        self.assertIn('2.290 €', h)                                    # Caffe + Caffè contati come un prodotto
+        self.assertIn('Incasso battuto su tasti generici', h)          # «Varie»
+        self.assertIn('IVA diversa sullo stesso prodotto', h)          # lo spritz al 16% medio
+        self.assertIn('Quello che la cassa da sola non può dire', h)
+        # un periodo che taglia il report non lo conta (niente numeri spalmati), date sbagliate si fermano
+        self.assertEqual(c.get(base + '/resoconto?dal=2026-02-01&al=2026-02-28', headers=self.D).status_code, 404)
+        self.assertEqual(c.get(base + '/resoconto?dal=febbraio', headers=self.D).status_code, 400)
+        self.assertEqual(c.get(base + '/resoconto').status_code, 401)
+
     def test_14_monitoring_non_modifica(self):
         for metodo, url, corpo in (('post', '/persone', {'nome': 'X', 'pin': '1111'}), ('post', '/ricette', {'nome': 'X'}),
                                    ('patch', '/impostazioni', {'obiettivo': 40}), ('post', '/inventari', {})):
