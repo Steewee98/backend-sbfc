@@ -12,7 +12,7 @@ from datetime import date
 from unittest import mock
 
 _db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-os.environ.update(DATABASE_URL=f'sqlite:///{_db.name}', ADMIN_TOKEN='test-token-lungo-abbastanza-1234', PROGETTI_TOKEN='chiave-progetti-di-prova-5678', SBFC_NO_BG='1',
+os.environ.update(DATABASE_URL=f'sqlite:///{_db.name}', PROGETTI_TOKEN='chiave-progetti-di-prova-5678', SBFC_NO_BG='1',
                   ANTHROPIC_API_KEY='finta')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,7 +20,7 @@ from app import app  # noqa: E402
 from models import db  # noqa: E402
 from services import progetti_ai  # noqa: E402
 
-H = {'X-Admin-Token': 'test-token-lungo-abbastanza-1234'}
+H = {'X-Admin-Token': 'chiave-progetti-di-prova-5678'}
 
 
 def risposta(**k):

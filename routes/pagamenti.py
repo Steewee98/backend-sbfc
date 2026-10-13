@@ -69,7 +69,8 @@ PRODOTTI = {
         'moduli': [],
         'tipo': 'pdf',
         'file_privato': 'manager-ristorazione',
-        'success_path': '/academy.html?acquisto=manuale#formazione',
+        # s = id della sessione Stripe: la pagina lo usa per contare l'acquisto una volta sola (pixel Meta)
+        'success_path': '/academy.html?acquisto=manuale&s={CHECKOUT_SESSION_ID}#formazione',
         'cancel_path': '/academy.html#formazione',
     },
 }
@@ -145,6 +146,7 @@ def crea_checkout():
         success_url = f'{frontend_url}/academy.html?pagamento=successo&prodotto={prodotto_id}'
         cancel_url = f'{frontend_url}/academy.html?pagamento=annullato'
 
+    importo = prezzo_per(prodotto, data.get('email'))
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -155,7 +157,7 @@ def crea_checkout():
                         'name': prodotto['nome'],
                         'description': 'SB Food Academy — sbfoodconsulting.com',
                     },
-                    'unit_amount': prezzo_per(prodotto, data.get('email')),
+                    'unit_amount': importo,
                 },
                 'quantity': 1,
             }],
@@ -172,7 +174,8 @@ def crea_checkout():
             billing_address_collection='required',
             customer_email=data.get('email'),
         )
-        return jsonify({'url': session.url})
+        # l'importo serve alla pagina per dire a Meta il valore dell'acquisto
+        return jsonify({'url': session.url, 'importo': importo / 100})
     except Exception as e:
         logger.error(f'Stripe checkout error: {e}')
         return jsonify({'error': 'Errore nella creazione del pagamento'}), 500

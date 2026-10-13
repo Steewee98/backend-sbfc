@@ -59,7 +59,7 @@ class TestManuale(unittest.TestCase):
         self.assertEqual(visti[0]['line_items'][0]['price_data']['unit_amount'], 1200)
         self.assertEqual(visti[1]['line_items'][0]['price_data']['unit_amount'], 1500)
         self.assertEqual(visti[0]['customer_email'], 'lettore@esempio.it')
-        self.assertTrue(visti[0]['success_url'].endswith('/academy.html?acquisto=manuale#formazione'))
+        self.assertTrue(visti[0]['success_url'].endswith('/academy.html?acquisto=manuale&s={CHECKOUT_SESSION_ID}#formazione'))
 
     def test_download_solo_con_firma_e_pagamento(self):
         r = self.c.post('/api/admin/file/manager-ristorazione',
