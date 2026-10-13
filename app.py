@@ -93,6 +93,7 @@ from routes.rete import rete_bp
 from routes.rete_dati import rete_dati_bp
 from routes.rete_foodcost import rete_fc_bp
 from routes.rete_locale import rete_locale_bp
+from routes.progetti import progetti_bp
 
 app.register_blueprint(contatti_bp)
 app.register_blueprint(studenti_bp)
@@ -119,6 +120,7 @@ app.register_blueprint(rete_bp)
 app.register_blueprint(rete_dati_bp)
 app.register_blueprint(rete_fc_bp)
 app.register_blueprint(rete_locale_bp)
+app.register_blueprint(progetti_bp)
 
 
 # Ensure tables exist

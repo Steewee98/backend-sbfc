@@ -880,3 +880,43 @@ class ConsulenteRete(db.Model):
     def to_dict(self):
         return {'id': self.id, 'nome': self.nome, 'email': self.email, 'attivo': self.attivo, 'ruolo': self.ruolo,
                 'ultimo_accesso': self.ultimo_accesso.isoformat() if self.ultimo_accesso else None}
+
+
+class Progetto(db.Model):
+    """Un progetto di Simone (Mera Bistrot, Metodo Pizza…). Si aggiorna a voce dalla
+    pagina progetti.html: ogni nota diventa cose fatte e cose da fare (routes/progetti.py)."""
+    __tablename__ = 'progetti'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(160), nullable=False)
+    stato = db.Column(db.String(20), nullable=False, default='aperto')   # aperto | in_lavorazione | in_attesa | chiuso
+    punto = db.Column(db.Text)              # a che punto siamo, in una o due frasi
+    aggiornato_il = db.Column(db.DateTime)  # ultima nota o modifica
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class NotaProgetto(db.Model):
+    """Una nota dettata da Simone, com'è stata trascritta. Resta anche se la lettura AI fallisce."""
+    __tablename__ = 'progetti_note'
+
+    id = db.Column(db.Integer, primary_key=True)
+    progetto_id = db.Column(db.Integer, db.ForeignKey('progetti.id', ondelete='CASCADE'), nullable=False, index=True)
+    testo = db.Column(db.Text, nullable=False)
+    elaborata = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class VoceProgetto(db.Model):
+    """Una cosa fatta o da fare in un progetto. Le cose da fare si spuntano a mano
+    o si chiudono da sole quando una nota dice che sono state fatte."""
+    __tablename__ = 'progetti_voci'
+
+    id = db.Column(db.Integer, primary_key=True)
+    progetto_id = db.Column(db.Integer, db.ForeignKey('progetti.id', ondelete='CASCADE'), nullable=False, index=True)
+    nota_id = db.Column(db.Integer, db.ForeignKey('progetti_note.id', ondelete='SET NULL'))
+    tipo = db.Column(db.String(10), nullable=False)          # fatto | da_fare
+    testo = db.Column(db.Text, nullable=False)
+    urgente = db.Column(db.Boolean, default=False)
+    scadenza = db.Column(db.Date)
+    chiusa_il = db.Column(db.DateTime)                       # solo da_fare: quando è stata fatta
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
