@@ -6,6 +6,7 @@ ricontrolla e si salva. Stessa chiave del gestionale (X-Admin-Token).
 La nota si salva sempre per prima: se la lettura AI non riesce resta «da elaborare»
 e si può riprovare, così quello che Simone ha detto non si perde.
 """
+import hmac
 import logging
 import os
 from datetime import date, datetime
@@ -27,8 +28,11 @@ NOTE_MOSTRATE = 8
 
 
 def _admin():
-    t = os.environ.get('ADMIN_TOKEN')
-    return bool(t) and request.headers.get('X-Admin-Token') == t
+    """Entra la chiave del gestionale oppure PROGETTI_TOKEN, la chiave del link personale
+    di Simone (progetti.html?k=…): apre solo questi progetti, non il resto del gestionale."""
+    data = (request.headers.get('X-Admin-Token') or '').encode()
+    chiavi = [os.environ.get('ADMIN_TOKEN'), os.environ.get('PROGETTI_TOKEN')]
+    return any(c and len(c) >= 20 and hmac.compare_digest(data, c.encode()) for c in chiavi)
 
 
 def _no():

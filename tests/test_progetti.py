@@ -12,7 +12,7 @@ from datetime import date
 from unittest import mock
 
 _db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-os.environ.update(DATABASE_URL=f'sqlite:///{_db.name}', ADMIN_TOKEN='test-token', SBFC_NO_BG='1',
+os.environ.update(DATABASE_URL=f'sqlite:///{_db.name}', ADMIN_TOKEN='test-token-lungo-abbastanza-1234', PROGETTI_TOKEN='chiave-progetti-di-prova-5678', SBFC_NO_BG='1',
                   ANTHROPIC_API_KEY='finta')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,7 +20,7 @@ from app import app  # noqa: E402
 from models import db  # noqa: E402
 from services import progetti_ai  # noqa: E402
 
-H = {'X-Admin-Token': 'test-token'}
+H = {'X-Admin-Token': 'test-token-lungo-abbastanza-1234'}
 
 
 def risposta(**k):
@@ -50,6 +50,10 @@ class TestProgetti(unittest.TestCase):
     def test_serve_la_chiave(self):
         self.assertEqual(self.c.get('/api/progetti').status_code, 401)
         self.assertEqual(self.c.get('/api/progetti', headers={'X-Admin-Token': 'no'}).status_code, 401)
+        # la chiave del link personale apre i progetti ma non il resto del gestionale
+        k = {'X-Admin-Token': 'chiave-progetti-di-prova-5678'}
+        self.assertEqual(self.c.get('/api/progetti', headers=k).status_code, 200)
+        self.assertEqual(self.c.get('/api/lead-strumenti/campagna/coda', headers=k).status_code, 401)
 
     def test_nota_diventa_voci(self):
         pid = self.nuovo()
