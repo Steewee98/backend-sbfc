@@ -267,18 +267,54 @@ def accoda_campagna(campagna, emails):
     return len(nuove)
 
 
+def accoda_inverno(adesso=None):
+    """Campagna inverno: il giorno previsto (ora di Roma) mette in coda i destinatari
+    dell'email, una volta sola. Ritorna {campagna: accodate}."""
+    from models import CodaCampagna
+    from services import campagna_inverno as ci
+    fatto = {}
+    for e in ci.dovute(adesso):
+        nome = ci.nome_campagna(e['n'])
+        if db.session.query(CodaCampagna.id).filter_by(campagna=nome).first():
+            continue   # già accodata (anche se nel frattempo tutta inviata)
+        n = accoda_campagna(nome, ci.destinatari(e))
+        fatto[nome] = n
+        print('[CAMPAGNA:%s] accodate %s email' % (nome, n), flush=True)
+    return fatto
+
+
 def processa_coda(per_giorno=None, adesso=None):
     """Manda le email in coda senza superare per_giorno invii per campagna nella
     giornata (UTC). Salta chi nel frattempo si è disiscritto o ha già comprato.
     Va chiamata dentro un application context. Ritorna {campagna: inviate}."""
     from models import CodaCampagna, EmailSequenza, Pagamento
     from services.email_service import invia_manuale_a
+    from services import campagna_inverno as ci
     per_giorno = int(per_giorno or os.environ.get('CAMPAGNA_PER_GIORNO', 50))
     adesso = adesso or datetime.utcnow()
     inizio = adesso.replace(hour=0, minute=0, second=0, microsecond=0)
-    invio = {'manuale': invia_manuale_a}
+    try:
+        accoda_inverno(adesso)
+    except Exception as ex:   # un errore nell'accodare non deve fermare gli invii già in coda
+        db.session.rollback()
+        print('[CAMPAGNA:inverno] errore nell\'accodare: %s' % ex, flush=True)
+    campagne = set(CAMPAGNE_IN_CODA) | {r[0] for r in db.session.query(CodaCampagna.campagna)
+                                        .filter(CodaCampagna.stato == 'in_coda').distinct().all()
+                                        if ci.numero_da_campagna(r[0])}
     fatto = {}
-    for campagna in CAMPAGNE_IN_CODA:
+    for campagna in sorted(campagne):
+        n_inv = ci.numero_da_campagna(campagna)
+        if n_inv:
+            escludi = ci.PER_NUMERO[n_inv].get('escludi')
+            invia = lambda m, n_inv=n_inv: ci.invia_inverno_a(m, n_inv)
+            comprato_fn = lambda m, escludi=escludi: ci.ha_gia(m, escludi)
+        elif campagna == 'manuale':
+            invia = invia_manuale_a
+            comprato_fn = lambda m: db.session.query(Pagamento.id).filter(
+                db.func.lower(Pagamento.email) == m,
+                Pagamento.prodotto == 'manager-ristorazione').first() is not None
+        else:
+            continue
         oggi = CodaCampagna.query.filter(
             CodaCampagna.campagna == campagna,
             CodaCampagna.inviata_at >= inizio).count()
@@ -290,15 +326,12 @@ def processa_coda(per_giorno=None, adesso=None):
         n = 0
         for r in righe:
             via = db.session.query(EmailSequenza.id).filter_by(email=r.email, stato='disiscritta').first()
-            comprato = campagna == 'manuale' and db.session.query(Pagamento.id).filter(
-                db.func.lower(Pagamento.email) == r.email,
-                Pagamento.prodotto == 'manager-ristorazione').first()
-            if via or comprato:
+            if via or comprato_fn(r.email):
                 r.stato = 'saltata'
                 r.inviata_at = adesso   # conta nella quota: il ritmo resta prevedibile
                 db.session.commit()
                 continue
-            rid = invia_manuale_a(r.email) if campagna in invio else None
+            rid = invia(r.email)
             r.tentativi = (r.tentativi or 0) + 1
             if rid:
                 r.stato, r.resend_id, r.inviata_at = 'inviata', str(rid)[:100], adesso
@@ -310,6 +343,24 @@ def processa_coda(per_giorno=None, adesso=None):
         if n:
             fatto[campagna] = n
     return fatto
+
+
+@lead_strumenti_bp.route('/api/lead-strumenti/campagna/inverno', methods=['GET'])
+@admin_required
+def inverno_stato():
+    """Le 12 email della campagna inverno: data, oggetto, quanti la riceverebbero
+    oggi (anteprima) e, se già partita, lo stato della coda. Non invia nulla."""
+    from models import CodaCampagna
+    from services import campagna_inverno as ci
+    out = []
+    for e in ci.EMAILS:
+        nome = ci.nome_campagna(e['n'])
+        rows = (db.session.query(CodaCampagna.stato, db.func.count(CodaCampagna.id))
+                .filter_by(campagna=nome).group_by(CodaCampagna.stato).all())
+        out.append({'campagna': nome, 'data': e['data'], 'oggetto': e['oggetto'],
+                    'escludi': e.get('escludi'), 'coda': {s_: c for s_, c in rows},
+                    'destinatari_oggi': None if rows else len(ci.destinatari(e))})
+    return jsonify({'email': out, 'per_giorno': int(os.environ.get('CAMPAGNA_PER_GIORNO', 50))}), 200
 
 
 @lead_strumenti_bp.route('/api/lead-strumenti/campagna/coda', methods=['GET'])
@@ -361,6 +412,15 @@ def campagna_invia():
         to = (data.get('to') or '').strip().lower()
         if not EMAIL_RE.match(to):
             return jsonify({'error': 'Indirizzo di test non valido'}), 400
+        from services import campagna_inverno as ci
+        n_inv = ci.numero_da_campagna(which)
+        if n_inv:
+            if n_inv not in ci.PER_NUMERO:
+                return jsonify({'error': 'Email della campagna inverno inesistente'}), 404
+            rid = ci.invia_inverno_a(to, n_inv, oggetto_prefisso='[Prova] ')
+            if not rid:
+                return jsonify({'error': 'Invio non riuscito (RESEND_API_KEY?)'}), 503
+            return jsonify({'success': True, 'mode': 'test', 'campagna': which, 'destinatario': to}), 200
         if not invia([to]):
             return jsonify({'error': 'RESEND_API_KEY non configurata'}), 503
         return jsonify({'success': True, 'mode': 'test', 'campagna': which, 'destinatario': to}), 200
