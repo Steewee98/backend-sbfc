@@ -121,7 +121,7 @@ def componi_html(e, unsub):
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#eae6df;font-size:1px;line-height:1px">{_h(e['anteprima'])}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eae6df;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:6px;overflow:hidden">
-<tr><td style="padding:0;font-size:0;line-height:0"><a href="{_h(e['link'])}"><img src="{_h(e['immagine'])}" width="600" alt="{_h(e['kicker'])}" style="display:block;width:100%;max-width:600px;height:auto;border:0"></a></td></tr>
+<tr><td style="padding:0;font-size:0;line-height:0"><a href="{_h(e['link'])}"><img src="{_h(e['immagine'])}" width="600" alt="" style="display:block;width:100%;max-width:600px;height:auto;border:0"></a></td></tr>
 <tr><td style="padding:28px 40px 0">
   <p style="margin:0 0 8px;color:#c4622d;font-size:11.5px;letter-spacing:3px;text-transform:uppercase;font-weight:bold">{_h(e['kicker'])}</p>
   <h1 style="margin:0 0 16px;color:#26282c;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.2;font-weight:normal">{_h(e['titolo'])}</h1>
