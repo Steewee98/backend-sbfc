@@ -7,6 +7,7 @@ Flusso:
   4. Admin: lista/aggiorna ordini, scarica allegati (logo/foto/menu).
 """
 import os
+import json
 import re
 import base64
 from html import escape
@@ -306,6 +307,81 @@ def crea_ordine():
         return jsonify({'url': session.url, 'slug': ordine.slug})
     except Exception as e:
         logger.error('Stripe checkout NFC error: %s', e, exc_info=True)
+        return jsonify({'error': 'Errore nella creazione del pagamento'}), 500
+
+
+# ─── 1b. Smart table (configuratore smart-table.html) ──────
+from services import smart_table as st  # noqa: E402  (il modello va registrato prima di create_all)
+
+
+@nfc_bp.route('/api/smart-table/ordine', methods=['POST'])
+def smart_table_ordine():
+    """Multipart: config (JSON delle scelte), nome, nome_locale, email, telefono, note, file logo/foto/menu.
+    Il prezzo lo ricalcola il server. Con un costo iniziale → Stripe; senza → richiesta."""
+    form = request.form
+    try:
+        conf = st.pulisci(json.loads(form.get('config') or '{}'))
+    except ValueError:
+        return jsonify({'error': 'Configurazione non valida'}), 400
+    if not any(conf['sel'].values()):
+        return jsonify({'error': 'Scegli almeno una cosa da configurare'}), 400
+    email = (form.get('email') or '').strip().lower()[:200]
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+        return jsonify({'error': 'Inserisci una email valida'}), 400
+    contatti = {'nome': (form.get('nome') or '').strip()[:200], 'email': email,
+                'nome_locale': ((form.get('nome_locale') or '').strip() or conf['m']['nome'] or conf['r']['nome'])[:200],
+                'telefono': (form.get('telefono') or '').strip()[:50], 'note': (form.get('note') or '').strip()[:2000]}
+    try:
+        allegati = {}
+        for campo, mime_ok in (('logo', MIME_IMMAGINI), ('foto', MIME_IMMAGINI), ('menu', MIME_MENU)):
+            f = _leggi_file(campo, mime_ok)
+            if f:
+                allegati[campo] = f
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    calc = st.calcola(conf)
+
+    if calc['subito'] <= 0:
+        # solo voci su preventivo: nessun pagamento, una richiesta per Simone
+        r = RichiestaNfc(allegati=allegati, nome=contatti['nome'], nome_locale=contatti['nome_locale'], email=email,
+                         telefono=contatti['telefono'], messaggio=('[Menù digitale] ' if conf['sel']['menu'] else '') + st.testo_semplice(conf, calc, contatti))
+        db.session.add(r)
+        db.session.commit()
+        st.invia_email_cliente(conf, calc, email, contatti['nome'], False)
+        st.invia_email_admin(conf, calc, contatti, False, ADMIN_EMAIL, FRONTEND_URL)
+        return jsonify({'ok': True, 'pagamento': False, 'id': r.id})
+
+    o = st.OrdineSmartTable(email=email, nome=contatti['nome'], nome_locale=contatti['nome_locale'], telefono=contatti['telefono'],
+                            note=contatti['note'] or None, config=conf, righe=calc['righe'], importo=calc['subito'] / 100,
+                            mese=calc['mese'] / 100, allegati=allegati, stato='in_attesa')
+    o.importo = calc['oggi'] / 100
+    db.session.add(o)
+    db.session.commit()
+    line_items = [{'price_data': {'currency': 'eur', 'unit_amount': x['cent'],
+                                  'product_data': {'name': x['voce'], **({'description': x['dettaglio']} if x['dettaglio'] else {})}},
+                   'quantity': 1} for x in calc['righe'] if x['cent']]
+    opzioni = {}
+    if calc['mese']:
+        # canone del menù: abbonamento che parte subito, il primo mese insieme al costo iniziale
+        line_items.append({'price_data': {'currency': 'eur', 'unit_amount': calc['mese'], 'recurring': {'interval': 'month'},
+                                          'product_data': {'name': 'Canone menù digitale', 'description': 'Menù online, aggiornamenti e tap delle placche'}},
+                           'quantity': 1})
+        opzioni['subscription_data'] = {'metadata': {'tipo': 'smart', 'ordine_id': str(o.id)}}
+    if calc['spedire']:
+        opzioni['shipping_address_collection'] = {'allowed_countries': ['IT', 'SM', 'VA', 'CH']}
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'], line_items=line_items, mode='subscription' if calc['mese'] else 'payment', allow_promotion_codes=True,
+            customer_email=email, billing_address_collection='required', phone_number_collection={'enabled': True},
+            success_url=f'{FRONTEND_URL}/smart-table.html?pagato=1#configura',
+            cancel_url=f'{FRONTEND_URL}/smart-table.html?pagamento=annullato#configura',
+            metadata={'tipo': 'smart', 'ordine_id': str(o.id), 'prodotto_id': 'smart-table'},
+            **opzioni)
+        o.stripe_id = session.id
+        db.session.commit()
+        return jsonify({'ok': True, 'pagamento': True, 'url': session.url, 'importo': calc['oggi'] / 100})
+    except Exception as e:
+        logger.error('Stripe checkout Smart table: %s', e, exc_info=True)
         return jsonify({'error': 'Errore nella creazione del pagamento'}), 500
 
 

@@ -217,6 +217,10 @@ def _gestisci_pagamento(session):
             from routes.nfc import gestisci_pagamento_nfc
             gestisci_pagamento_nfc(session)
             return
+        if tipo == 'smart':
+            from services.smart_table import gestisci_pagamento_smart
+            gestisci_pagamento_smart(session)
+            return
     except Exception as e:
         logger.error('Errore webhook NFC: %s', e, exc_info=True)
         return

@@ -1,0 +1,23 @@
+{
+ "A_OGGETTO": "Conferma ordine Smart table da SB Food Consulting",
+ "A_ANTEPRIMA": "Abbiamo ricevuto il Suo pagamento per la configurazione Smart table.",
+ "A_TITOLO": "Ordine Smart table confermato",
+ "A_INTRO": "Buongiorno {nome}, confermiamo il pagamento del costo iniziale per la configurazione Smart table. Di seguito trova il riepilogo delle voci scelte per il Suo ristorante.",
+ "A_TABELLA_TITOLO": "Riepilogo della configurazione",
+ "A_PASSI_TITOLO": "Prossimi passi operativi",
+ "A_PASSO1": "Entro un giorno lavorativo La contatteremo per raccogliere menù, foto, link ed eventuale bozza grafica da approvare.",
+ "A_PASSO2": "Prepariamo il menù digitale, programmiamo e spediamo le placche, oppure inviamo i file pronti per la stampa.",
+ "A_PASSO3": "Per i futuri aggiornamenti del menù potrà scriverci su WhatsApp e le modifiche saranno online in giornata.",
+ "A_CHIUSURA": "Per qualsiasi domanda può rispondere direttamente a questa email. Cordiali saluti, SB Food Consulting.",
+ "B_OGGETTO": "Richiesta preventivo Smart table ricevuta, SB Food Consulting",
+ "B_ANTEPRIMA": "Abbiamo ricevuto la Sua configurazione Smart table. Risponderemo a breve.",
+ "B_TITOLO": "Richiesta configurazione Smart table",
+ "B_INTRO": "Buongiorno {nome}, abbiamo ricevuto la Sua configurazione Smart table. Entro un giorno lavorativo Le invieremo la nostra proposta e il preventivo per le voci selezionate, senza alcun impegno.",
+ "B_CHIUSURA": "Per qualsiasi domanda può rispondere direttamente a questa email. Cordiali saluti, SB Food Consulting.",
+ "NOTA_MESE": "Il canone mensile non è compreso in questo pagamento.",
+ "CTA_PAGA_TUTTO": "Paga e ordina ora",
+ "CTA_PAGA_TUTTO_NOTA": "Pagamento iniziale sicuro con Stripe. Il canone mensile del menù non ti viene addebitato adesso.",
+ "CTA_NOTA_ABBON": "Pagamento sicuro con Stripe. Oggi paghi il costo iniziale e il primo mese (19 €). Il canone si rinnova in automatico ogni mese.",
+ "CTA_NOTA_SEMPLICE": "Completa il tuo acquisto con pagamento sicuro tramite Stripe.",
+ "NOTA_MESE_ABBON": "L'importo include il primo mese di canone (19 €), che si rinnoverà in automatico ogni mese sulla Sua carta."
+}
