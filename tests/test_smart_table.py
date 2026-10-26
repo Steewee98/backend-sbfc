@@ -44,13 +44,28 @@ class TestCalcolo(unittest.TestCase):
         self.assertEqual(c['subito'], 4900)
         self.assertEqual(c['oggi'], 4900 + 1900)
         self.assertFalse(c['spedire'])
-        c = st.calcola(st.pulisci({'sel': {'social': True}, 'link': 'si'}))
-        self.assertEqual(c['subito'], 0)
-        self.assertEqual(c['oggi'], 0)
+        # senza risposta su «da dove partiamo» (richiesta manomessa) resta da definire
+        c = st.calcola(st.pulisci({'sel': {'menu': True}, 'm': {'fmt': 'stampa'}}))
+        self.assertEqual((c['subito'], c['oggi']), (0, 0))
         self.assertTrue(c['da_definire'])
         # solo placca recensioni: niente canone, pagamento semplice
         c = st.calcola(st.pulisci({'sel': {'recensioni': True}, 'link': 'si'}))
         self.assertEqual((c['subito'], c['mese'], c['oggi']), (3500, 0, 3500))
+
+    def test_prezzi_fissi_al_posto_dei_preventivi(self):   # Stefano, 26 ott 2026
+        prova = [({'sel': {'menu': True}, 'm': {'fmt': 'stampa'}, 'oggi': 'no'}, 14900, False),
+                 ({'sel': {'recensioni': True}, 'r': {'stampa': True}, 'link': 'si'}, 1900, False),
+                 ({'sel': {'wifi': True}}, 1900, True),
+                 ({'sel': {'social': True}, 'link': 'si'}, 2500, True),
+                 ({'sel': {'social': True, 'wifi': True}, 'link': 'no'}, 2500 + 1900 + 1500, True)]
+        for conf, subito, spedire in prova:
+            c = st.calcola(st.pulisci(conf))
+            self.assertEqual((c['subito'], c['spedire']), (subito, spedire), conf)
+            self.assertFalse(c['da_definire'], conf)
+            self.assertNotIn('preventivo', json.dumps(c['righe'], ensure_ascii=False))
+        # con il menù il Wi-Fi resta compreso
+        c = st.calcola(st.pulisci({'sel': {'menu': True, 'wifi': True}, 'm': {'fmt': 'stampa'}, 'oggi': 'dig'}))
+        self.assertEqual(c['subito'], 4900)
 
     def test_email_senza_codici_esadecimali_a_vista(self):
         conf = st.pulisci(BASE)
@@ -73,7 +88,7 @@ class TestOrdine(unittest.TestCase):
 
     def test_senza_prezzo_solo_richiesta(self):
         with mock.patch('utils.email.invia_email', return_value=True) as e:
-            r = self._invia({'sel': {'social': True}, 'link': 'si', 'links': {'instagram': 'https://instagram.com/x'}})
+            r = self._invia({'sel': {'menu': True}, 'm': {'fmt': 'stampa'}})
         self.assertEqual(r.status_code, 200)
         self.assertFalse(r.json['pagamento'])
         with app.app_context():

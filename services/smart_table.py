@@ -10,7 +10,10 @@ costo iniziale + primo mese del canone (19 €), poi rinnovo automatico ogni mes
 
 Listino deciso da Stefano (20 ott 2026): tavolo 12 € neutra / 18 € personalizzata,
 placca recensioni 35 / 59 € + 25 € ogni copia, preparazione del menù 49 € (menù digitale
-già esistente) / 99 € (solo carta) / su preventivo (nessun menù), ricerca dei link 15 €.
+già esistente) / 99 € (solo carta), ricerca dei link 15 €.
+Dal 26 ott 2026 niente più preventivi (Stefano: «non mettere i preventivi, metti i prezzi fissi»):
+menù da creare da zero 149 €, placca recensioni come file da stampare 19 €, placchetta Wi-Fi da
+sola 19 €, placchetta Instagram e prenotazioni 25 €.
 Testi delle email: Argon, in smart_table_testi.json.
 """
 import html
@@ -25,7 +28,8 @@ from models import db
 logger = logging.getLogger(__name__)
 
 PREZZI = {'tavolo_neutra': 1200, 'tavolo_pers': 1800, 'mese': 1900, 'placca_base': 3500,
-          'placca_pers': 5900, 'copia': 2500, 'prep_dig': 4900, 'prep_carta': 9900, 'link': 1500}
+          'placca_pers': 5900, 'copia': 2500, 'prep_dig': 4900, 'prep_carta': 9900, 'prep_zero': 14900,
+          'link': 1500, 'recensioni_file': 1900, 'wifi': 1900, 'social': 2500}
 TAVOLI_MAX, PLACCHE_MAX = 80, 10
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'smart_table_testi.json'), encoding='utf-8') as _f:
     TESTI = json.load(_f)
@@ -118,11 +122,13 @@ def calcola(c):
             subito += P['prep_dig']; riga('Sviluppo design, menù e software', 'partendo dal menù digitale attuale', P['prep_dig'])
         elif c['oggi'] == 'carta':
             subito += P['prep_carta']; riga('Sviluppo design, menù e software', 'partendo dal menù di carta', P['prep_carta'])
-        else:
-            da_definire = True; riga('Sviluppo design, menù e software', 'menù da creare', testo='su preventivo')
+        elif c['oggi'] == 'no':
+            subito += P['prep_zero']; riga('Sviluppo design, menù e software', 'menù da creare da zero', P['prep_zero'])
+        else:   # il configuratore obbliga a rispondere: qui si arriva solo con una richiesta manomessa
+            da_definire = True; riga('Sviluppo design, menù e software', 'da definire', testo='da definire')
     if s['recensioni']:
         if r['stampa']:
-            da_definire = True; riga('Placca recensioni', 'file da stampare', testo='su preventivo')
+            subito += P['recensioni_file']; riga('Placca recensioni', 'file da stampare, con QR', P['recensioni_file'])
         else:
             t = (P['placca_pers'] if r['pers'] else P['placca_base']) + P['copia'] * (r['placche'] - 1)
             subito += t; spedire = True
@@ -132,9 +138,9 @@ def calcola(c):
         if s['menu']:
             riga('Wi-Fi', 'compreso nel menù digitale', 0)
         else:
-            da_definire = True; riga('Placchetta Wi-Fi', '', testo='su preventivo')
+            subito += P['wifi']; spedire = True; riga('Placchetta Wi-Fi', 'rete e password nel tag', P['wifi'])
     if s['social']:
-        da_definire = True; riga('Instagram e prenotazioni', '', testo='su preventivo')
+        subito += P['social']; spedire = True; riga('Placchetta Instagram e prenotazioni', '', P['social'])
     if (s['recensioni'] or s['social']) and c['link'] == 'no':
         subito += P['link']; riga('Ricerca e controllo dei link', 'li cerchiamo noi', P['link'])
     return {'righe': righe, 'subito': subito, 'mese': mese, 'da_definire': da_definire, 'spedire': spedire,
