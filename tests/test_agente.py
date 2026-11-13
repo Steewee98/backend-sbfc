@@ -84,7 +84,8 @@ class TestAgente(unittest.TestCase):
 
     # ── input sbagliati ──
     def test_azioni_non_valide_rifiutate(self):
-        for corpo in ({}, {'tipo': 'vendita'}, {'tipo': 'basi'}, {'tipo': 'messaggio', 'testo': '   '},
+        for corpo in ({}, {'tipo': 'vendita'}, {'tipo': 'vendita', 'email': 'no', 'prodotto': 'corso'},
+                      {'tipo': 'vendita', 'email': 'a@b.it', 'prodotto': 'placca'}, {'tipo': 'basi'}, {'tipo': 'messaggio', 'testo': '   '},
                       {'tipo': 'spesa', 'spesa_id': 'x', 'scelta': 'ok'}, {'tipo': 'spesa', 'spesa_id': 1, 'scelta': 'forse'}):
             self.assertEqual(self.c.post('/api/admin/agente/azione', json=corpo, headers=AD).status_code, 400, corpo)
         self.assertEqual(self.c.get('/api/agente/in-arrivo', headers=AG).get_json()['in_arrivo'], [])
@@ -95,6 +96,12 @@ class TestAgente(unittest.TestCase):
         enorme = {'stato': {'x': 'a' * 300_000}}
         self.assertEqual(self.c.post('/api/agente/stato', json=enorme, headers=AG).status_code, 413)
         self.assertEqual(self.c.post('/api/agente/letti', json={'ids': 'abc'}, headers=AG).status_code, 400)
+
+    def test_vendita(self):
+        r = self.c.post('/api/admin/agente/azione', json={'tipo': 'vendita', 'email': ' Mario@Trattoria.IT ', 'prodotto': 'smart-table'}, headers=AD)
+        self.assertEqual(r.status_code, 200)
+        v = self.c.get('/api/agente/in-arrivo', headers=AG).get_json()['in_arrivo'][0]
+        self.assertEqual((v['tipo'], v['email'], v['prodotto']), ('vendita', 'mario@trattoria.it', 'smart-table'))
 
     def test_messaggio_lungo_tagliato(self):
         self.c.post('/api/admin/agente/azione', json={'tipo': 'messaggio', 'testo': 'x' * 9000}, headers=AD)

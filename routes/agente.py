@@ -18,6 +18,7 @@ Un tipo sconosciuto il motore lo segna come letto senza applicarlo: andrebbe per
 import hmac
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 from functools import wraps
@@ -28,7 +29,9 @@ from models import db
 
 agente_bp = Blueprint('agente', __name__)
 
-TIPI = ('messaggio', 'pausa', 'riprendi', 'spesa')
+TIPI = ('messaggio', 'pausa', 'riprendi', 'spesa', 'vendita')
+PRODOTTI_VENDITA = ('consulenza', 'corso', 'manuale', 'smart-table')   # id del motore (motore-2026-11-13)
+RX_EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 MAX_STATO = 200_000        # byte di JSON dello stato
 MAX_MESSAGGIO = 4000       # caratteri di un messaggio
 MAX_MESSAGGI = 20          # messaggi dell'agente per chiamata (come il motore)
@@ -187,6 +190,13 @@ def azione_admin():
         if d.get('scelta') not in ('ok', 'no'):
             return jsonify({'error': 'scelta deve essere ok o no'}), 400
         extra['scelta'] = d['scelta']
+    elif tipo == 'vendita':
+        email = str(d.get('email') or '').strip().lower()
+        if not RX_EMAIL.match(email) or len(email) > 200:
+            return jsonify({'error': 'Email del cliente non valida'}), 400
+        if d.get('prodotto') not in PRODOTTI_VENDITA:
+            return jsonify({'error': 'prodotto deve essere uno fra: ' + ', '.join(PRODOTTI_VENDITA)}), 400
+        extra['email'], extra['prodotto'] = email, d['prodotto']
     voce = AgenteInArrivo(id=uuid.uuid4().hex, tipo=tipo, dati=json.dumps(extra, ensure_ascii=False))
     db.session.add(voce)
     db.session.commit()
